@@ -9,7 +9,7 @@
         /* Auth guard + theme, run before first paint */
         (function () {
             try {
-                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
                 document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
             } catch (e) {}
         })();
@@ -32,17 +32,47 @@
 
     /* ══════════════════════════════════════════════════════════════════════
        DASHBOARD — search, recent / pinned tools, status, useful links
+       Customizable: sections can be hidden and useful links added / removed.
+       Preferences live in localStorage (stockroom_dash_prefs, stockroom_custom_links).
     ══════════════════════════════════════════════════════════════════════ */
+    const DEFAULT_PREFS = { recent: true, status: true, links: true };
+    function loadPrefs() {
+        try { return { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem(DASH_KEY) || '{}') }; } catch(e) { return { ...DEFAULT_PREFS }; }
+    }
+
     function Dashboard({ data }) {
         const { inventory, dbStatus, lastModified } = data;
         const [q, setQ] = useState('');
         const [pinned, setPinned] = useState(() => readList(PINNED_KEY));
+        const [prefs, setPrefs] = useState(loadPrefs);
+        const [editing, setEditing] = useState(false);
+        const [links, setLinks] = useState(getUsefulLinks);
+        const [newName, setNewName] = useState('');
+        const [newUrl, setNewUrl] = useState('');
+        const [linkErr, setLinkErr] = useState('');
         const recent = readList(RECENT_KEY);
+
+        const updatePrefs = (patch) => {
+            const n = { ...prefs, ...patch };
+            setPrefs(n);
+            try { localStorage.setItem(DASH_KEY, JSON.stringify(n)); } catch(e) {}
+        };
+        const commitLinks = (arr) => { setLinks(arr); saveUsefulLinks(arr); };
+        const addLink = (e) => {
+            e.preventDefault();
+            const url = cleanLinkUrl(newUrl);
+            if (!newName.trim()) { setLinkErr('Enter a name for the link.'); return; }
+            if (!url) { setLinkErr('Enter a web address, such as example.com or https://example.com.'); return; }
+            commitLinks([...links, { label: newName.trim(), url }]);
+            setNewName(''); setNewUrl(''); setLinkErr('');
+        };
+        const removeLink = (i) => commitLinks(links.filter((_, k) => k !== i));
+        const restoreLinks = () => { saveUsefulLinks(null); setLinks(USEFUL_LINKS); };
 
         const submit = (e) => {
             e.preventDefault();
             if (!q.trim()) return;
-            window.location.href = 'search.html?q=' + encodeURIComponent(q.trim());
+            window.location.href = 'search?q=' + encodeURIComponent(q.trim());
         };
         const pin = (e, id) => { e.preventDefault(); e.stopPropagation(); setPinned(togglePinnedTool(id)); };
 
@@ -53,23 +83,53 @@
             ...recent.filter(id => byId(id) && !pinned.includes(id)).slice(0, 3),
         ];
 
+        const showRecent = prefs.recent || editing;
+        const showStatus = prefs.status || editing;
+        const showLinks  = prefs.links  || editing;
+
+        const Toggle = ({ k, label }) => (
+            <label className="cust-toggle">
+                <input type="checkbox" checked={prefs[k]} onChange={e => updatePrefs({ [k]: e.target.checked })} />
+                <span>{label}</span>
+            </label>
+        );
+
         return (
             <div className="dash">
+                <div className="dash-customize-bar">
+                    <button className="btn btn-ghost btn-sm" onClick={() => setEditing(e => !e)} aria-pressed={editing}>
+                        {editing ? 'Done' : 'Customize'}
+                    </button>
+                </div>
+
+                {editing && (
+                    <div className="cust-panel">
+                        <div className="cust-title">Customize the dashboard</div>
+                        <div className="cust-toggles">
+                            <Toggle k="recent" label="Recent and pinned tools" />
+                            <Toggle k="status" label="Database status" />
+                            <Toggle k="links"  label="Useful links" />
+                        </div>
+                        <div className="cust-note">Hidden sections stay available here. Changes are saved on this browser.</div>
+                    </div>
+                )}
+
                 <section className="dash-hero" aria-label="Catalog search">
                     <h1>Search the catalog</h1>
                     <p>Find an item by SKU, manufacturer number, name, vendor, or bin location.</p>
                     <form className="dash-search" onSubmit={submit} role="search">
                         <Icon name="search" size={22} />
-                        <input type="search" autoFocus autoComplete="off" value={q} onChange={e => setQ(e.target.value)}
+                        <input type="search" autoFocus={!editing} autoComplete="off" value={q} onChange={e => setQ(e.target.value)}
                                placeholder="Start typing a SKU or item name" aria-label="Catalog search" />
                         <button type="submit">Search</button>
                     </form>
                     <div className="dash-hint">Press Ctrl+K (⌘K on Mac) to search tools, contacts, and items from any page.</div>
                 </section>
 
-                <section className="dash-row" aria-label="Recent and pinned tools">
+                {showRecent && (
+                <section className={`dash-row ${!prefs.recent ? 'dim' : ''}`} aria-label="Recent and pinned tools">
                     <div className="dash-row-head">
-                        <h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Recent and pinned</h2>
+                        <h2 className="section-label">Recent and pinned{!prefs.recent && <em className="hidden-tag">Hidden</em>}</h2>
                         <span>Pin a tool to keep it here</span>
                     </div>
                     {rowIds.length === 0 ? (
@@ -92,9 +152,11 @@
                         </div>
                     )}
                 </section>
+                )}
 
-                <section className="dash-row" aria-label="Database status">
-                    <div className="dash-row-head"><h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Database</h2></div>
+                {showStatus && (
+                <section className={`dash-row ${!prefs.status ? 'dim' : ''}`} aria-label="Database status">
+                    <div className="dash-row-head"><h2 className="section-label">Database{!prefs.status && <em className="hidden-tag">Hidden</em>}</h2></div>
                     <div className="status-panel">
                         <div className="status-cell">
                             <div className="k">Inventory items</div>
@@ -112,17 +174,33 @@
                         </div>
                     </div>
                 </section>
+                )}
 
-                <section className="dash-row" aria-label="Useful links">
-                    <div className="dash-row-head"><h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Useful links</h2></div>
+                {showLinks && (
+                <section className={`dash-row ${!prefs.links ? 'dim' : ''}`} aria-label="Useful links">
+                    <div className="dash-row-head"><h2 className="section-label">Useful links{!prefs.links && <em className="hidden-tag">Hidden</em>}</h2></div>
                     <div className="link-pills">
-                        {USEFUL_LINKS.map(l => (
-                            <a key={l.url} className="link-pill" href={l.url} target="_blank" rel="noopener noreferrer">
-                                {l.label} <Icon name="external" size={11} />
-                            </a>
+                        {links.map((l, i) => (
+                            <span key={l.url + i} className={`link-pill-wrap ${editing ? 'editing' : ''}`}>
+                                <a className="link-pill" href={l.url} target="_blank" rel="noopener noreferrer">
+                                    {l.label} <Icon name="external" size={11} />
+                                </a>
+                                {editing && <button className="link-remove" onClick={() => removeLink(i)} aria-label={`Remove ${l.label}`} title="Remove"><Icon name="x" size={12} /></button>}
+                            </span>
                         ))}
+                        {links.length === 0 && !editing && <span className="dash-empty" style={{width:'100%'}}>No links yet. Use Customize to add some.</span>}
                     </div>
+                    {editing && (
+                        <form className="link-add" onSubmit={addLink}>
+                            <input className="form-input" placeholder="Link name" value={newName} onChange={e => setNewName(e.target.value)} aria-label="Link name" />
+                            <input className="form-input" placeholder="Web address" value={newUrl} onChange={e => setNewUrl(e.target.value)} aria-label="Web address" inputMode="url" autoCapitalize="off" />
+                            <button className="btn btn-primary btn-sm" type="submit">Add link</button>
+                            <button className="btn btn-ghost btn-sm" type="button" onClick={restoreLinks}>Restore default links</button>
+                            {linkErr && <div className="link-err" role="alert">{linkErr}</div>}
+                        </form>
+                    )}
                 </section>
+                )}
             </div>
         );
     }

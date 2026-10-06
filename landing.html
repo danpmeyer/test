@@ -23,36 +23,10 @@
             background: linear-gradient(155deg, var(--navy) 0%, #00296f 45%, var(--royal) 100%);
         }
 
-        /* Background grid: thin lines that breathe, plus a slow gold sweep */
-        .grid, .grid::before, .grid::after { position: fixed; inset: 0; pointer-events: none; }
-        .grid {
-            background-image:
-                linear-gradient(rgba(219,238,255,.9) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(219,238,255,.9) 1px, transparent 1px);
-            background-size: 56px 56px;
-            opacity: .07;
-            animation: breathe 8s ease-in-out infinite;
-            -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 50%, #000 25%, transparent 100%);
-                    mask-image: radial-gradient(ellipse 80% 75% at 50% 50%, #000 25%, transparent 100%);
-        }
-        .grid::before {
-            content: ''; opacity: 1;
-            background-image:
-                linear-gradient(rgba(255,184,28,1) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(255,184,28,1) 1px, transparent 1px);
-            background-size: 56px 56px;
-            -webkit-mask-image: radial-gradient(circle 260px at 50% 50%, #000 0%, transparent 100%);
-                    mask-image: radial-gradient(circle 260px at 50% 50%, #000 0%, transparent 100%);
-            -webkit-mask-size: 340% 340%; mask-size: 340% 340%;
-            -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
-            animation: sweep 18s ease-in-out infinite alternate;
-        }
-        @keyframes breathe { 0%, 100% { opacity: .045; } 50% { opacity: .11; } }
-        @keyframes sweep {
-            0%   { -webkit-mask-position: 0% 10%;   mask-position: 0% 10%; }
-            50%  { -webkit-mask-position: 100% 70%; mask-position: 100% 70%; }
-            100% { -webkit-mask-position: 30% 100%; mask-position: 30% 100%; }
-        }
+        /* Background: a canvas-drawn grid that is warped, stretched and pulsed (see script) */
+        #bg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+        .vignette { position: fixed; inset: 0; pointer-events: none;
+            background: radial-gradient(ellipse 60% 55% at 50% 50%, rgba(0,32,91,.72) 0%, rgba(0,32,91,.35) 55%, rgba(0,32,91,0) 100%); }
 
         .stage { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; text-align: center; }
         .logo { width: min(380px, 80vw); height: auto; display: block; margin-bottom: 26px; animation: rise .7s cubic-bezier(.2,.7,.2,1) both; }
@@ -81,11 +55,12 @@
         .foot img { width: 22px; height: 22px; object-fit: contain; opacity: .85; }
 
         @media (max-height: 640px) { .foot { position: static; margin-top: 30px; } }
-        @media (prefers-reduced-motion: reduce) { .grid, .grid::before, .logo, .blurb, .gate { animation: none !important; } }
+        @media (prefers-reduced-motion: reduce) { .logo, .blurb, .gate { animation: none !important; } }
     </style>
 </head>
 <body>
-    <div class="grid" aria-hidden="true"></div>
+    <canvas id="bg" aria-hidden="true"></canvas>
+    <div class="vignette" aria-hidden="true"></div>
 
     <main class="stage">
         <img class="logo" src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom">
@@ -93,7 +68,7 @@
 
         <div class="gate" id="gate-locked" hidden>
             <form id="login-form" autocomplete="off">
-                <label for="pw">Staff password</label>
+                <label for="pw">Password</label>
                 <div class="gate-row" id="gate-row">
                     <input id="pw" type="password" placeholder="Enter password" autocomplete="current-password" autofocus>
                     <button class="btn-gold" type="submit">Enter</button>
@@ -103,18 +78,74 @@
         </div>
 
         <div class="gate" id="gate-open" hidden>
-            <a class="btn-gold btn-open" href="index.html">Open the Toolbox</a>
+            <a class="btn-gold btn-open" href="./">Open the Toolbox</a>
         </div>
     </main>
 
     <div class="foot">
         <img src="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png" alt="">
-        <span>University of Pittsburgh · Dietrich School of Arts &amp; Sciences</span>
+        <span>University of Pittsburgh · Shared Research Support Services</span>
     </div>
 
+
+    <script>
+        /* Warped, flowing grid. Every grid point is displaced by two travelling swells,
+           a ring that pulses outward from the centre (lit gold as it passes), and a slow
+           horizontal/vertical stretch that breathes in opposite directions. */
+        (function () {
+            var cv = document.getElementById('bg'), ctx = cv.getContext('2d');
+            var W, H, dpr, S, still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            function resize() {
+                dpr = Math.min(window.devicePixelRatio || 1, 2);
+                W = window.innerWidth; H = window.innerHeight;
+                cv.width = W * dpr; cv.height = H * dpr;
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                S = W < 600 ? 38 : 52;                      // grid spacing
+            }
+            resize(); window.addEventListener('resize', function () { resize(); if (still) frame(0); });
+
+            var R = Math.hypot(1, 1);
+            function warp(x, y, t) {
+                var cx = W / 2, cy = H / 2, dx = x - cx, dy = y - cy, d = Math.hypot(dx, dy) || 1;
+                var nx = x / W, ny = y / H;
+                var a = Math.sin(nx * 5.2 + t * 0.55) + Math.cos(ny * 4.1 - t * 0.42);
+                var b = Math.sin((nx + ny) * 6.3 - t * 0.78);
+                var reach = Math.max(W, H) * 0.62;
+                var ring = Math.sin(d * 0.017 - t * 1.5) * Math.exp(-d / reach);      // outward pulse
+                var sx = 1 + 0.07 * Math.sin(t * 0.43), sy = 1 + 0.07 * Math.cos(t * 0.37);  // stretch
+                var ox = a * 8 + b * 5 + (dx / d) * ring * 20;
+                var oy = b * 8 + a * 4 + (dy / d) * ring * 20;
+                return { x: cx + dx * sx + ox, y: cy + dy * sy + oy, ring: ring, w: Math.abs(a + b) / 4 };
+            }
+            function line(vertical, pos, t) {
+                var steps = Math.ceil((vertical ? H : W) / 22) + 2, prev = null;
+                for (var i = -1; i <= steps; i++) {
+                    var u = i * 22;
+                    var p = warp(vertical ? pos : u, vertical ? u : pos, t);
+                    if (prev) {
+                        var glow = Math.max(0, (p.ring + prev.ring) / 2 - 0.28) * 2.2;     // 0..~1 on the pulse crest
+                        if (glow > 0.12) { ctx.strokeStyle = 'rgba(255,184,28,' + Math.min(0.75, glow * 0.7).toFixed(3) + ')'; ctx.lineWidth = 1.4; }
+                        else { ctx.strokeStyle = 'rgba(219,238,255,' + (0.10 + p.w * 0.15).toFixed(3) + ')'; ctx.lineWidth = 1; }
+                        ctx.beginPath(); ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+                    }
+                    prev = p;
+                }
+            }
+            function frame(ms) {
+                var t = ms / 1000;
+                ctx.clearRect(0, 0, W, H);
+                var pad = 3 * S;
+                for (var x = -pad; x <= W + pad; x += S) line(true, x, t);
+                for (var y = -pad; y <= H + pad; y += S) line(false, y, t);
+                if (!still) requestAnimationFrame(frame);
+            }
+            if (still) frame(4200); else requestAnimationFrame(frame);
+        })();
+    </script>
     <script>
         (function () {
             var AUTH_KEY = 'stockroom_auth', CORRECT = 'enzyme';
+            try { if (/\.html$/.test(location.pathname)) history.replaceState(null, '', location.pathname.replace(/\.html$/, '')); } catch (e) {}
             var authed = false;
             try { authed = localStorage.getItem(AUTH_KEY) === '1'; } catch (e) {}
 
@@ -132,7 +163,7 @@
                 e.preventDefault();
                 if (input.value.trim().toLowerCase() === CORRECT) {
                     try { localStorage.setItem(AUTH_KEY, '1'); } catch (x) {}
-                    window.location.href = 'index.html';
+                    window.location.href = './';
                 } else {
                     err.textContent = 'That password is not correct.';
                     row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake');

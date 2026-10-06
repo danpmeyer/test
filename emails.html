@@ -9,7 +9,7 @@
         /* Auth guard + theme, run before first paint */
         (function () {
             try {
-                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
                 document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
             } catch (e) {}
         })();
@@ -334,7 +334,7 @@ Instagram / Facebook / Twitter(X): @dssstockroom`;
                         <strong>How to use:</strong> Click <strong>Open in Mail</strong> to launch your email client with subject and body pre-filled — just add recipients and send. Click <strong>Copy HTML</strong> to copy a styled version; open a new Outlook email and paste (<kbd style={{background:'#dbeeff',padding:'1px 5px',borderRadius:'3px',fontFamily:'var(--mono)',fontSize:'12px'}}>Ctrl+V</kbd>) for the branded layout with signature.
                     </div>
 
-                    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(480px, 1fr))', gap:'18px'}}>
+                    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(min(480px, 100%), 1fr))', gap:'18px'}}>
                         {TEMPLATE_CATEGORIES.map(cat => (
                             <React.Fragment key={cat.label}>
                                 <div style={{gridColumn:'1 / -1'}}>

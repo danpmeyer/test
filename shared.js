@@ -278,15 +278,17 @@ const PITT_SEAL_URL = 'https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/Univ
    NAVIGATION / TOOL REGISTRY
 ══════════════════════════════════════════════════════════════════════ */
 const TOOLS = [
-    { id:'forms',       name:'Forms',        href:'forms.html',       icon:'clipboard', section:'toolkit', desc:'Packing slips, commercial hazmat BOLs, product requests, and form history',      keywords:'packing slip bill of lading product request history' },
-    { id:'hazmat-bol',  name:'Hazmat BOL',   href:'hazmat-bol.html',  icon:'hazard',    section:'toolkit', desc:'DOT hazmat transportation log for internal deliveries (not in commerce)',        keywords:'dot internal delivery bill of lading un chemical transport' },
-    { id:'emails',      name:'Emails',       href:'emails.html',      icon:'mail',      section:'toolkit', desc:'Order status email templates and a branded custom composer',                      keywords:'template outlook mailto notification reminder' },
-    { id:'phonebook',   name:'Phonebook',    href:'phonebook.html',   icon:'phone',     section:'toolkit', desc:'Contact directory across Chemistry, Biology, SRSS, Pitt offices, and vendors',    keywords:'contacts directory email phone vendor' },
-    { id:'cycle-count', name:'Cycle Count',  href:'cycle-count.html', icon:'box',       section:'toolkit', desc:'Scan-based inventory verification by section and rack',                          keywords:'inventory scan variance count audit' },
-    { id:'labels',      name:'Label Maker',  href:'labels.html',      icon:'tag',       section:'toolkit', desc:'Avery 5162 / 5160 barcode shelf labels',                                        keywords:'avery barcode shelf label print pdf' },
-    { id:'metrics',     name:'Metrics',      href:'metrics.html',     icon:'chart',     section:'toolkit', desc:'Order history, revenue, top items, top customers, and quarterly review dashboards', keywords:'orders revenue sales customers quarterly dashboard report', newTab:true },
+    { id:'forms',       name:'Forms',        href:'forms',       icon:'clipboard', section:'toolkit', desc:'Packing slips, commercial hazmat BOLs, product requests, and form history',      keywords:'packing slip bill of lading product request history' },
+    { id:'hazmat-bol',  name:'Hazmat BOL',   href:'hazmat-bol',  icon:'hazard',    section:'toolkit', desc:'DOT hazmat transportation log for internal deliveries (not in commerce)',        keywords:'dot internal delivery bill of lading un chemical transport' },
+    { id:'emails',      name:'Emails',       href:'emails',      icon:'mail',      section:'toolkit', desc:'Order status email templates and a branded custom composer',                      keywords:'template outlook mailto notification reminder' },
+    { id:'phonebook',   name:'Phonebook',    href:'phonebook',   icon:'phone',     section:'toolkit', desc:'Contact directory across Chemistry, Biology, SRSS, Pitt offices, and vendors',    keywords:'contacts directory email phone vendor' },
+    { id:'cycle-count', name:'Cycle Count',  href:'cycle-count', icon:'box',       section:'toolkit', desc:'Scan-based inventory verification by section and rack',                          keywords:'inventory scan variance count audit' },
+    { id:'labels',      name:'Label Maker',  href:'labels',      icon:'tag',       section:'toolkit', desc:'Avery 5162 / 5160 barcode shelf labels',                                        keywords:'avery barcode shelf label print pdf' },
+    { id:'metrics',     name:'Metrics',      href:'metrics',     icon:'chart',     section:'toolkit', desc:'Order history, revenue, top items, top customers, and quarterly review dashboards', keywords:'orders revenue sales customers quarterly dashboard report', newTab:true },
 ];
-const INFO_TOOL = { id:'information', name:'Information', href:'information.html', icon:'book', section:'information', desc:'Ordering guides, SOPs, vendor guides, and regulatory references', keywords:'wiki guide help' };
+const LINKS_KEY = 'stockroom_custom_links';
+const DASH_KEY  = 'stockroom_dash_prefs';
+const INFO_TOOL = { id:'information', name:'Information', href:'information', icon:'book', section:'information', desc:'Ordering guides, SOPs, vendor guides, and regulatory references', keywords:'wiki guide help' };
 const ALL_TOOLS = [...TOOLS, INFO_TOOL];
 
 /* ── Information section: categories and articles ──────────────────────
@@ -325,6 +327,37 @@ const USEFUL_LINKS = [
     { label:'Instagram',                     url:'https://www.instagram.com/dssstockroom' },
     { label:'X / Twitter',                   url:'https://x.com/dssstockroom' },
 ];
+
+/* ── Useful links (user-customizable; falls back to the defaults above) ── */
+function getUsefulLinks() {
+    try {
+        const v = JSON.parse(localStorage.getItem(LINKS_KEY));
+        if (Array.isArray(v)) return v.filter(l => l && l.label && l.url);
+    } catch(e) {}
+    return USEFUL_LINKS;
+}
+function saveUsefulLinks(arr) {          // pass null to restore defaults
+    try { if (arr) localStorage.setItem(LINKS_KEY, JSON.stringify(arr)); else localStorage.removeItem(LINKS_KEY); } catch(e) {}
+    window.dispatchEvent(new Event('stockroom-links-changed'));
+}
+/* Accepts only http(s) and mailto links; adds https:// when no scheme is typed */
+function cleanLinkUrl(raw) {
+    let u = String(raw || '').trim();
+    if (!u) return '';
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(u)) u = 'https://' + u;
+    return /^(https?:|mailto:)/i.test(u) ? u : '';
+}
+function useMediaQuery(q) {
+    const [m, setM] = useState(() => window.matchMedia(q).matches);
+    useEffect(() => {
+        const mq = window.matchMedia(q);
+        const f = () => setM(mq.matches);
+        if (mq.addEventListener) mq.addEventListener('change', f); else mq.addListener(f);
+        f();
+        return () => { if (mq.removeEventListener) mq.removeEventListener('change', f); else mq.removeListener(f); };
+    }, [q]);
+    return m;
+}
 
 /* ══════════════════════════════════════════════════════════════════════
    ICONS — one stroke-based set so every page shares a visual language
@@ -597,7 +630,7 @@ function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme }) {
             <button className="icon-btn" onClick={onToggleSidebar} aria-label="Toggle sidebar" title="Toggle sidebar">
                 <Icon name="menu" />
             </button>
-            <a className="topbar-brand" href="index.html" aria-label="DSS Stockroom Toolbox home">
+            <a className="topbar-brand" href="./" aria-label="DSS Stockroom Toolbox home">
                 <img src={PITT_SEAL_URL} alt="University of Pittsburgh seal" />
                 <span>DSS Stockroom Toolbox</span>
             </a>
@@ -615,46 +648,32 @@ function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme }) {
 }
 
 function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }) {
-    const [q, setQ] = useState('');
     const [linksOpen, setLinksOpen] = useState(false);
-    const searchRef = useRef(null);
+    const [links, setLinks] = useState(getUsefulLinks);
+    useEffect(() => {
+        const f = () => setLinks(getUsefulLinks());
+        window.addEventListener('stockroom-links-changed', f);
+        return () => window.removeEventListener('stockroom-links-changed', f);
+    }, []);
     const params = new URLSearchParams(window.location.search);
     const activeCat = page === 'information' ? params.get('cat') : null;
 
-    const submit = (e) => {
-        e.preventDefault();
-        if (!q.trim()) return;
-        window.location.href = 'search.html?q=' + encodeURIComponent(q.trim());
-    };
-    const expandAndFocus = () => {
-        onToggleCollapsed();
-        setTimeout(() => searchRef.current && searchRef.current.focus(), 260);
-    };
-
     return (
         <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Primary navigation">
-            <a className="sidebar-logo" href="index.html" title="Dashboard">
-                <img src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom" />
+            <a className="sidebar-logo" href="./" title="Dashboard">
+                {collapsed
+                    ? <span className="sidebar-logo-mini">DSSS</span>
+                    : <img src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom" />}
             </a>
 
-            {!collapsed ? (
-                <form className="sidebar-search" onSubmit={submit} role="search">
-                    <label htmlFor="sb-search" className="sidebar-search-label">Catalog search</label>
-                    <div className="sidebar-search-wrap">
-                        <Icon name="search" size={17} />
-                        <input id="sb-search" ref={searchRef} type="search" autoComplete="off" value={q}
-                               onChange={e => setQ(e.target.value)} placeholder="SKU, item name, vendor…" />
-                        <button type="submit" aria-label="Search catalog">Go</button>
-                    </div>
-                </form>
-            ) : (
-                <button className="sidebar-search-icon" onClick={expandAndFocus} title="Catalog search" aria-label="Catalog search">
-                    <Icon name="search" size={19} />
-                </button>
-            )}
+            <div className="sidebar-search-link">
+                <a href="search" className={`nav-item nav-search ${page === 'search' ? 'active' : ''}`} title={collapsed ? 'Catalog Search' : undefined}>
+                    <Icon name="search" /><span className="nav-label">Catalog Search</span>
+                </a>
+            </div>
 
             <nav className="sidebar-nav">
-                <div className="nav-section">
+                <div className="nav-section nav-tiles">
                     <div className="nav-section-title">Toolkit</div>
                     {TOOLS.map(t => (
                         <a key={t.id} href={t.href} className={`nav-item ${page === t.id ? 'active' : ''}`} title={collapsed ? t.name : undefined}
@@ -663,17 +682,17 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                         </a>
                     ))}
                 </div>
-                <div className="nav-section">
+                <div className="nav-section nav-tiles">
                     <div className="nav-section-title">Information</div>
                     {INFO_CATEGORIES.map(c => (
-                        <a key={c.id} href={`information.html?cat=${c.id}`}
+                        <a key={c.id} href={`information?cat=${c.id}`}
                            className={`nav-item ${activeCat === c.id ? 'active' : ''}`} title={collapsed ? c.name : undefined}>
                             <Icon name={c.icon} /><span className="nav-label">{c.name}</span>
                         </a>
                     ))}
                 </div>
                 <div className="nav-section">
-                    <button className="nav-section-title nav-section-toggle" onClick={() => collapsed ? expandAndFocus() : setLinksOpen(o => !o)}
+                    <button className="nav-section-title nav-section-toggle" onClick={() => collapsed ? onToggleCollapsed() : setLinksOpen(o => !o)}
                             aria-expanded={linksOpen} title={collapsed ? 'Useful Links' : undefined}>
                         <Icon name="link" className="nav-section-icon" />
                         <span className="nav-label">Useful Links</span>
@@ -681,9 +700,10 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                     </button>
                     {!collapsed && linksOpen && (
                         <div className="nav-links-compact">
-                            {USEFUL_LINKS.map(l => (
-                                <a key={l.url} href={l.url} target="_blank" rel="noopener noreferrer">{l.label}</a>
+                            {links.map(l => (
+                                <a key={l.url + l.label} href={l.url} target="_blank" rel="noopener noreferrer">{l.label}</a>
                             ))}
+                            {links.length === 0 && <span style={{padding:'5px 10px', fontSize:'12.5px', color:'rgba(255,255,255,.5)'}}>No links. Add some on the dashboard.</span>}
                         </div>
                     )}
                 </div>
@@ -694,7 +714,7 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                 <Icon name={collapsed ? 'chevR' : 'chevL'} size={17} />
                 <span className="nav-label">Collapse</span>
             </button>
-            <button className="sidebar-close-mobile" onClick={onCloseMobile} aria-label="Close menu"><Icon name="x" /></button>
+            <button className="sidebar-close-mobile" onClick={onCloseMobile} aria-label="Close menu"><Icon name="x" size={22} /></button>
         </aside>
     );
 }
@@ -731,7 +751,7 @@ function QuickLaunch({ open, onClose, data }) {
     useEffect(() => {
         if (!open) return;
         setQ(''); setActive(0); setCopied('');
-        setTimeout(() => inputRef.current && inputRef.current.focus(), 30);
+        if (inputRef.current) inputRef.current.focus();
         if (contacts === null) loadPhonebookContacts().then(setContacts);
     }, [open]);
 
@@ -742,8 +762,8 @@ function QuickLaunch({ open, onClose, data }) {
         // Tools & information categories
         const toolPool = [
             ...ALL_TOOLS.map(t => ({ kind:'tool', key:'t-' + t.id, icon:t.icon, title:t.name, sub:t.desc, href:t.href, newTab:!!t.newTab, hay:(t.name + ' ' + t.keywords).toLowerCase() })),
-            ...INFO_CATEGORIES.map(c => ({ kind:'tool', key:'c-' + c.id, icon:c.icon, title:c.name, sub:'Information — ' + c.desc, href:'information.html?cat=' + c.id, hay:('information ' + c.name + ' ' + c.desc).toLowerCase() })),
-            ...INFO_CATEGORIES.flatMap(c => c.articles.map(a => ({ kind:'tool', key:'a-' + a.id, icon:'book', title:a.title, sub:'Information — ' + c.name, href:`information.html?cat=${c.id}&article=${a.id}`, hay:(a.title + ' ' + a.summary + ' ' + c.name).toLowerCase() }))),
+            ...INFO_CATEGORIES.map(c => ({ kind:'tool', key:'c-' + c.id, icon:c.icon, title:c.name, sub:'Information — ' + c.desc, href:'information?cat=' + c.id, hay:('information ' + c.name + ' ' + c.desc).toLowerCase() })),
+            ...INFO_CATEGORIES.flatMap(c => c.articles.map(a => ({ kind:'tool', key:'a-' + a.id, icon:'book', title:a.title, sub:'Information — ' + c.name, href:`information?cat=${c.id}&article=${a.id}`, hay:(a.title + ' ' + a.summary + ' ' + c.name).toLowerCase() }))),
         ];
         const tools = (words.length ? toolPool.filter(t => words.every(w => t.hay.includes(w))) : toolPool.filter(t => t.key.startsWith('t-'))).slice(0, words.length ? 6 : 7);
 
@@ -779,10 +799,10 @@ function QuickLaunch({ open, onClose, data }) {
     const go = (r) => {
         if (!r) return;
         if (r.kind === 'tool') { if (r.newTab) { window.open(r.href, '_blank', 'noopener'); onClose(); } else window.location.href = r.href; }
-        else if (r.kind === 'item') window.location.href = 'search.html?q=' + encodeURIComponent(r.item.internalSKU);
+        else if (r.kind === 'item') window.location.href = 'search?q=' + encodeURIComponent(r.item.internalSKU);
         else if (r.kind === 'contact') {
-            if (r.contact.email) window.location.href = 'mailto:' + r.contact.email;
-            else copyText(r.contact.phone || r.contact.cell || r.contact.phone2 || '', r.key);
+            const c = r.contact;
+            window.location.href = 'phonebook?q=' + encodeURIComponent(c.email || (c.firstName + ' ' + c.lastName).trim());
         }
     };
     const copyText = (txt, key) => {
@@ -798,7 +818,7 @@ function QuickLaunch({ open, onClose, data }) {
         else if (e.key === 'Enter') {
             e.preventDefault();
             if (results.flat[active]) go(results.flat[active]);
-            else if (q.trim()) window.location.href = 'search.html?q=' + encodeURIComponent(q.trim());
+            else if (q.trim()) window.location.href = 'search?q=' + encodeURIComponent(q.trim());
         }
     };
 
@@ -814,7 +834,7 @@ function QuickLaunch({ open, onClose, data }) {
             <div className="ql-modal" role="dialog" aria-modal="true" aria-label="Quick Launch">
                 <div className="ql-input-row">
                     <Icon name="search" size={20} />
-                    <input ref={inputRef} value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
+                    <input ref={inputRef} autoFocus value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
                            placeholder="Search tools, contacts, and catalog items…" aria-label="Quick Launch search" autoComplete="off" spellCheck="false" />
                     <kbd>Esc</kbd>
                 </div>
@@ -831,6 +851,7 @@ function QuickLaunch({ open, onClose, data }) {
                         <span className="ql-ico"><Icon name="user" size={17} /></span>
                         <span className="ql-main">
                             <span className="ql-title">{c.firstName} {c.lastName}{c.title ? <span className="ql-title-note"> · {c.title}</span> : null}</span>
+                            <span className="ql-sub ql-group">{c.group.replace(/^\*\s*/, '') || c.department || 'No group listed'}</span>
                             <span className="ql-sub">
                                 {[c.phone || c.cell || c.phone2, c.email].filter(Boolean).join('  ·  ') || 'No phone or email on file'}
                             </span>
@@ -877,10 +898,17 @@ function Shell({ page, title, desc, children, data }) {
     const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(SIDEBAR_KEY) === '1'; } catch(e) { return false; } });
     const [mobileOpen, setMobileOpen] = useState(false);
     const [qlOpen, setQlOpen] = useState(false);
+    const isMobile = useMediaQuery('(max-width: 900px)');
+    const effCollapsed = collapsed && !isMobile;
+    useEffect(() => { if (!isMobile) setMobileOpen(false); }, [isMobile]);
+    useEffect(() => {
+        document.body.style.overflow = mobileOpen ? 'hidden' : '';
+        return () => { document.body.style.overflow = ''; };
+    }, [mobileOpen]);
 
     const toggleCollapsed = () => setCollapsed(c => { const n = !c; try { localStorage.setItem(SIDEBAR_KEY, n ? '1' : '0'); } catch(e) {} return n; });
     const toggleSidebar = () => {
-        if (window.matchMedia('(max-width: 900px)').matches) setMobileOpen(o => !o);
+        if (isMobile) setMobileOpen(o => !o);
         else toggleCollapsed();
     };
 
@@ -916,10 +944,9 @@ function Shell({ page, title, desc, children, data }) {
     }, []);
 
     return (
-        <div className={`app ${collapsed ? 'sb-collapsed' : ''}`}>
+        <div className={`app ${effCollapsed ? 'sb-collapsed' : ''}`}>
             <TopBar onToggleSidebar={toggleSidebar} onQuickLaunch={() => setQlOpen(true)} theme={theme} onToggleTheme={toggleTheme} />
-            <Sidebar page={page} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
-            {mobileOpen && <div className="sidebar-scrim" onClick={() => setMobileOpen(false)} />}
+            <Sidebar page={page} collapsed={effCollapsed} onToggleCollapsed={toggleCollapsed} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
             <main className="main" id="main">
                 <div className="main-inner">
                     {title && (
@@ -944,7 +971,12 @@ function PageRoot({ page, title, desc, render }) {
 
 /* Every authenticated page calls this once: mountPage({ page, title, desc, render }) */
 function mountPage(cfg) {
-    if (!isAuthed()) { window.location.replace('landing.html'); return; }
+    if (!isAuthed()) { window.location.replace('landing'); return; }
     applyTheme(getTheme());
+    // Show clean URLs: /forms instead of /forms.html (GitHub Pages serves both)
+    try {
+        const p = window.location.pathname;
+        if (/\.html$/.test(p)) history.replaceState(null, '', p.replace(/index\.html$/, '').replace(/\.html$/, '') + window.location.search + window.location.hash);
+    } catch(e) {}
     ReactDOM.createRoot(document.getElementById('root')).render(<PageRoot {...cfg} />);
 }

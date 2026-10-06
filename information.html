@@ -9,7 +9,7 @@
         /* Auth guard + theme, run before first paint */
         (function () {
             try {
-                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
                 document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
             } catch (e) {}
         })();
@@ -190,9 +190,21 @@ Deliver on a straight truck with a lift gate.`;
 
         return (
             <div className="wiki">
+                <nav className="crumbs" aria-label="Breadcrumb">
+                    <button className={`crumb ${!category ? 'current' : ''}`} onClick={() => sync(null, null)} aria-current={!category ? 'page' : undefined}>
+                        <Icon name="book" size={16} /> Information
+                    </button>
+                    {category && <>
+                        <Icon name="chevR" size={16} className="crumb-sep" />
+                        <button className={`crumb ${!article ? 'current' : ''}`} onClick={() => sync(category.id, null)} aria-current={!article ? 'page' : undefined}>{category.name}</button>
+                    </>}
+                    {article && <>
+                        <Icon name="chevR" size={16} className="crumb-sep" />
+                        <span className="crumb current" aria-current="page">{article.title}</span>
+                    </>}
+                </nav>
                 {article ? (
                     <>
-                        <button className="back-link" onClick={() => sync(category.id, null)}><Icon name="chevL" size={15} /> {category.name}</button>
                         <div className="article-body">
                             {ARTICLE_RENDERERS[article.id]
                                 ? ARTICLE_RENDERERS[article.id](data)

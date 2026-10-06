@@ -9,7 +9,7 @@
         /* Auth guard + theme, run before first paint */
         (function () {
             try {
-                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
                 document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
             } catch (e) {}
         })();
@@ -40,6 +40,7 @@
         const [query, setQuery] = useState(initialQ);
         const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
         const [openKey, setOpenKey] = useState(null);
+        const isPhone = useMediaQuery('(max-width: 700px)');
 
         const results = useMemo(() => (query.trim() && inventory.length) ? searchCatalog(inventory, staffNames, query) : null,
                                 [query, inventory, staffNames]);
@@ -132,6 +133,40 @@
                         <div className="search-meta">{results.length.toLocaleString()} {results.length === 1 ? 'item' : 'items'} for “{query}”</div>
                         {results.length > 0 ? (
                             <>
+                                {isPhone ? (
+                                    <>
+                                    <div className="m-sort">
+                                        <label htmlFor="m-sort">Sort by</label>
+                                        <select id="m-sort" className="form-select" value={sortConfig.key || ''}
+                                                onChange={e => setSortConfig({ key: e.target.value || null, direction: 'asc' })}>
+                                            <option value="">Best match</option>
+                                            <option value="location">Location</option>
+                                            <option value="name">Name</option>
+                                            <option value="internalSKU">Item number</option>
+                                            <option value="ourPrice">Price</option>
+                                        </select>
+                                    </div>
+                                    <div className="m-list">
+                                        {sorted.map((item) => {
+                                            const key = rowKey(item, indexOf.get(item));
+                                            const open = openKey === key;
+                                            return (
+                                                <div key={key} className={`m-card ${open ? 'open' : ''}`}>
+                                                    <button className="m-card-head" onClick={() => setOpenKey(open ? null : key)} aria-expanded={open}>
+                                                        <span className="m-top">
+                                                            <span className="m-loc">{item.location}</span>
+                                                            <OnHandBadge item={item} />
+                                                        </span>
+                                                        <span className="m-name">{nameOf(item)}</span>
+                                                        <span className="m-sku">{item.internalSKU}<Icon name="chevD" size={16} className="m-chev" /></span>
+                                                    </button>
+                                                    {open && <div className="m-detail">{detail(item)}</div>}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    </>
+                                ) : (
                                 <div className="table-wrap">
                                     <table className="tbl-dense">
                                         <thead>
@@ -173,6 +208,7 @@
                                         </tbody>
                                     </table>
                                 </div>
+                                )}
                                 <div className="alert alert-info" style={{marginTop:'14px', marginBottom:0}}>
                                     <strong>Note:</strong> Prices are subject to change and should not be considered a quote. Please confirm current pricing with a sales representative.
                                 </div>
