@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hazmat BOL — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+    const COMPAT_KEY = 'internalbol_history';
+
+    function loadIBOLHistory() {
+        try { return JSON.parse(localStorage.getItem(COMPAT_KEY) || '[]'); } catch(e) { return []; }
+    }
+    function saveIBOLHistory(arr) {
+        try { localStorage.setItem(COMPAT_KEY, JSON.stringify(arr)); } catch(e) {}
+    }
+
+    // ── BOL HTML print document ────────────────────────────────────────────
+    function buildInternalBOLHTML(bol) {
+        // Group items by location, then consolidate same UN# within a location
+        const byLocation = {};
+        bol.items.forEach(item => {
+            const loc = item.locationCode;
+            if (!byLocation[loc]) byLocation[loc] = { locationCode: loc, locationName: item.locationName, locationAddress: item.locationAddress, items: [] };
+            // Consolidate same UN# within location
+            const existing = byLocation[loc].items.find(i => i.un === item.un);
+            if (existing) {
+                existing.qtyGal += item.qtyGal;
+                existing.qtyKg  += item.qtyKg;
+                existing.pieces += item.pieces;
+            } else {
+                byLocation[loc].items.push({ ...item });
+            }
+        });
+
+        const pages = Object.values(byLocation);
+        const pagesHtml = pages.map((loc, pageIdx) => {
+            const rowsHtml = loc.items.map(item => {
+                const isLtdQty = item.isLtdQty;
+                const desc = `${item.un}, ${item.name}, ${item.hazClass}, PG${item.pg}${isLtdQty ? ', Ltd Qty' : ''}`;
+                const labels = isLtdQty ? 'Ltd Qty' : item.labels;
+                return `
+                <tr>
+                    <td style="border:1px solid #000;padding:4px 6px;text-align:center;">${item.pieces}</td>
+                    <td style="border:1px solid #000;padding:4px 6px;text-align:center;font-weight:bold;">X</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">${desc}</td>
+                    <td style="border:1px solid #000;padding:4px 6px;text-align:center;">${labels}</td>
+                    <td style="border:1px solid #000;padding:4px 6px;text-align:center;">${item.ltdQtyThreshold ? (isLtdQty ? '✓ ' : '') + item.ltdQtyThreshold : '—'}</td>
+                    <td style="border:1px solid #000;padding:4px 6px;text-align:right;">${(item.qtyKg * 2.20462).toFixed(2)}</td>
+                </tr>`;
+            }).join('');
+
+            // Blank rows to pad to minimum 6 rows
+            const blankRows = Math.max(0, 6 - loc.items.length);
+            const blanksHtml = Array(blankRows).fill(`
+                <tr>
+                    <td style="border:1px solid #000;padding:4px 6px;height:24px;">&nbsp;</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">&nbsp;</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">&nbsp;</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">&nbsp;</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">&nbsp;</td>
+                    <td style="border:1px solid #000;padding:4px 6px;">&nbsp;</td>
+                </tr>`).join('');
+
+            return `
+            <div style="page-break-after:${pageIdx < pages.length - 1 ? 'always' : 'avoid'};padding:18px;font-family:Arial,sans-serif;font-size:10pt;max-width:720px;margin:0 auto;">
+                <h2 style="text-align:center;margin:0 0 4px 0;font-size:14pt;font-weight:bold;text-transform:uppercase;letter-spacing:0.05em;">Hazardous Materials Transportation Log</h2>
+                <p style="text-align:center;margin:0 0 10px 0;font-size:9pt;">For Internal University Transport — Not in Commerce</p>
+
+                <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+                    <tr>
+                        <td colspan="2" style="border:2px solid #000;padding:5px 8px;font-weight:bold;font-size:9.5pt;">
+                            EMERGENCY RESPONSE TELEPHONE: &nbsp;&nbsp;412-624-9505 (EH&amp;S) &nbsp;&nbsp;|&nbsp;&nbsp; 412-624-8551 (Stockroom)
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1px solid #000;padding:5px 8px;width:50%;">
+                            <strong>Date:</strong> ${bol.date}
+                        </td>
+                        <td style="border:1px solid #000;padding:5px 8px;width:50%;">
+                            <strong>Page 1 of 1</strong>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="border:1px solid #000;padding:5px 8px;vertical-align:top;">
+                            <strong>Delivery Address:</strong><br>
+                            ${loc.locationName} (${loc.locationCode})<br>
+                            ${loc.locationAddress}
+                        </td>
+                        <td style="border:1px solid #000;padding:5px 8px;vertical-align:top;">
+                            <strong>Shipper:</strong><br>
+                            University of Pittsburgh<br>
+                            326 Chevron Science Center<br>
+                            219 Parkman Avenue, Pittsburgh, PA 15213
+                        </td>
+                    </tr>
+                </table>
+
+                <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+                    <thead>
+                        <tr style="background:#000;color:#fff;">
+                            <th style="border:1px solid #000;padding:5px 6px;width:8%;text-align:center;">Pieces</th>
+                            <th style="border:1px solid #000;padding:5px 6px;width:4%;text-align:center;">HM</th>
+                            <th style="border:1px solid #000;padding:5px 6px;">Description<br><span style="font-size:8pt;font-weight:normal;">(UN# / Proper Shipping Name / Hazard Class / Packing Group)</span></th>
+                            <th style="border:1px solid #000;padding:5px 6px;width:12%;text-align:center;">Labels / Markings</th>
+                            <th style="border:1px solid #000;padding:5px 6px;width:10%;text-align:center;">Limited Qty.</th>
+                            <th style="border:1px solid #000;padding:5px 6px;width:10%;text-align:right;">Total Wt. (lbs)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rowsHtml}
+                        ${blanksHtml}
+                    </tbody>
+                </table>
+
+                <div style="border:1px solid #000;padding:8px;font-size:8.5pt;line-height:1.5;margin-bottom:10px;">
+                    This is to certify that the above-named materials are properly classified, described, packaged, marked and labeled, and are in proper condition for transportation according to the applicable regulations of the Department of Transportation.
+                </div>
+
+                <div style="margin-top:32px;padding-top:8px;">
+                    <div style="font-family:Arial,sans-serif;font-size:10pt;margin-bottom:4px;">Signature:</div>
+                    <div style="border-bottom:1px solid #000;width:100%;margin-bottom:4px;">&nbsp;</div>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <style>
+            @media print {
+                body { margin: 0; }
+                @page { margin: 0.75in; size: letter; }
+            }
+            body { font-family: Arial, sans-serif; }
+        </style>
+        </head><body>${pagesHtml}</body></html>`;
+    }
+
+    function InternalBOLPage() {
+        const [date,        setDate]        = useState(() => new Date().toISOString().slice(0,10));
+        const [locQuery,    setLocQuery]    = useState('');
+        const [locResults,  setLocResults]  = useState([]);
+        const [selectedLoc, setSelectedLoc] = useState(null);
+        const [useCustomLoc,    setUseCustomLoc]    = useState(false);
+        const [customLocName,   setCustomLocName]   = useState('');
+        const [customLocCode,   setCustomLocCode]   = useState('');
+        const [customLocAddr,   setCustomLocAddr]   = useState('');
+        const [chemQuery,   setChemQuery]   = useState('');
+        const [chemResults, setChemResults] = useState([]);
+        const [selectedChem,setSelectedChem]= useState(null);
+        const [qtyGal,      setQtyGal]      = useState('');
+        const [pieces,      setPieces]      = useState('1');
+        const [items,       setItems]       = useState([]);
+        const [history,     setHistory]     = useState(() => loadIBOLHistory());
+        const [activeTab,   setActiveTab]   = useState('builder'); // builder | history
+        const [addresses,     setAddresses]     = useState(PITT_ADDRESSES_FALLBACK);
+        const [qtyUnit,          setQtyUnit]          = useState('gal');
+        const [useCustomChem,    setUseCustomChem]    = useState(false);
+        const [customChemUN,     setCustomChemUN]     = useState('');
+        const [customChemName,   setCustomChemName]   = useState('');
+        const [customChemClass,  setCustomChemClass]  = useState('');
+        const [customChemPG,     setCustomChemPG]     = useState('');
+        const [customChemDensity,setCustomChemDensity]= useState('');
+        const [customChemLabels, setCustomChemLabels] = useState('');
+        const [locHighlight,  setLocHighlight]  = useState(-1);
+        const [chemHighlight, setChemHighlight] = useState(-1);
+        const [savedMsg,    setSavedMsg]    = useState('');
+
+        // Load Pitt_Address.xlsx if present alongside the file
+        useEffect(() => {
+            fetch('pitt-addresses.xlsx')
+                .then(r => r.arrayBuffer())
+                .then(ab => {
+                    const wb = XLSX.read(ab, { type:'array', raw:false });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { defval:'' });
+                    const parsed = rows.map(r => ({
+                        code:    String(r['Building Code'] || '').trim(),
+                        name:    String(r['Building Name'] || '').trim(),
+                        address: [
+                            String(r['Street Address'] || '').trim(),
+                            'Pittsburgh, PA',
+                            String(r['Post Code'] || '').trim(),
+                        ].filter(Boolean).join(', '),
+                    })).filter(r => r.code && r.name);
+                    if (parsed.length > 0) setAddresses(parsed);
+                })
+                .catch(() => {}); // silently fall back to embedded list
+        }, []);
+
+        // Location search
+        useEffect(() => {
+            if (!locQuery.trim()) { setLocResults([]); return; }
+            const q = locQuery.trim().toLowerCase();
+            setLocResults(
+                addresses.filter(a =>
+                    a.code.toLowerCase().includes(q) ||
+                    a.name.toLowerCase().includes(q)
+                ).slice(0, 10)
+            );
+        }, [locQuery, addresses]);
+
+        // Chemical search
+        useEffect(() => {
+            if (!chemQuery.trim()) { setChemResults([]); return; }
+            const q = chemQuery.trim().toLowerCase();
+            setChemResults(
+                HAZMAT_DB.filter(c =>
+                    c.un.toLowerCase().includes(q) ||
+                    c.name.toLowerCase().includes(q)
+                ).slice(0, 10)
+            );
+        }, [chemQuery]);
+
+        const selectLocation = (loc) => {
+            setSelectedLoc(loc);
+            setLocQuery(loc.name + ' (' + loc.code + ')');
+            setLocResults([]);
+        };
+
+        const selectChem = (chem) => {
+            setSelectedChem(chem);
+            setChemQuery(chem.un + ' — ' + chem.name);
+            setChemResults([]);
+        };
+
+        const toKg = (qty, unit, density) => {
+            const q = parseFloat(qty);
+            if (isNaN(q)) return 0;
+            switch(unit) {
+                case 'gal': return q * 3.78541 * density;
+                case 'pt':  return q * 0.473176 * density;
+                case 'L':   return q * density;
+                case 'mL':  return (q / 1000) * density;
+                case 'g':   return q / 1000;
+                case 'kg':  return q;
+                default:    return q * 3.78541 * density;
+            }
+        };
+
+        const toLiters = (qty, unit, density) => {
+            const q = parseFloat(qty);
+            if (isNaN(q)) return 0;
+            switch(unit) {
+                case 'gal': return q * 3.78541;
+                case 'pt':  return q * 0.473176;
+                case 'L':   return q;
+                case 'mL':  return q / 1000;
+                case 'g':   return (q / 1000) / density;
+                case 'kg':  return q / density;
+                default:    return q * 3.78541;
+            }
+        };
+
+        // Keep kgFromGal as alias for history reprint compatibility
+        const kgFromGal = (gal, density) => gal * 3.78541 * density;
+
+        const computeIsLtdQty = (chem, qty, unit) => {
+            if (!chem.ltdQty) return false;
+            const threshold = chem.ltdQty.trim().toLowerCase();
+            if (threshold === 'no lq') return false;
+            const totalLiters = toLiters(qty, unit, chem.density);
+            const totalKg     = toKg(qty, unit, chem.density);
+            if (threshold.endsWith('ml')) return totalLiters * 1000 <= parseFloat(threshold);
+            if (threshold.endsWith('l'))  return totalLiters <= parseFloat(threshold);
+            if (threshold.endsWith('kg')) return totalKg <= parseFloat(threshold);
+            if (threshold.endsWith('g'))  return totalKg * 1000 <= parseFloat(threshold);
+            return false;
+        };
+
+        const addItem = () => {
+            const loc = useCustomLoc
+                ? (customLocName.trim() ? { code: customLocCode.trim() || '—', name: customLocName.trim(), address: customLocAddr.trim() } : null)
+                : selectedLoc;
+            if (!loc) return;
+            const density = useCustomChem ? parseFloat(customChemDensity) || 1.0 : selectedChem?.density;
+            if (!qtyGal || isNaN(parseFloat(qtyGal))) return;
+            if (useCustomChem && (!customChemUN.trim() || !customChemName.trim())) return;
+            if (!useCustomChem && !selectedChem) return;
+
+            const kg = toKg(qtyGal, qtyUnit, density);
+            const chem = useCustomChem
+                ? { un: customChemUN.trim(), name: customChemName.trim(), hazClass: customChemClass.trim(), pg: customChemPG.trim(), labels: customChemLabels.trim(), ltdQty: null, density }
+                : selectedChem;
+            const isLtdQty = useCustomChem ? false : computeIsLtdQty(selectedChem, qtyGal, qtyUnit);
+            const newItem = {
+                id:                Date.now(),
+                locationCode:      loc.code,
+                locationName:      loc.name,
+                locationAddress:   loc.address,
+                un:                chem.un,
+                name:              chem.name,
+                hazClass:          chem.hazClass,
+                pg:                chem.pg,
+                labels:            chem.labels || '',
+                ltdQtyThreshold:   chem.ltdQty || '',
+                isLtdQty,
+                qtyGal:            parseFloat(qtyGal),
+                qtyUnit,
+                qtyKg:             kg,
+                pieces:            parseInt(pieces) || 1,
+            };
+            setItems(prev => [...prev, newItem]);
+            setSelectedChem(null);
+            setChemQuery('');
+            setQtyGal('');
+            setPieces('1');
+            setCustomChemUN('');
+            setCustomChemName('');
+            setCustomChemClass('');
+            setCustomChemPG('');
+            setCustomChemDensity('');
+            setCustomChemLabels('');
+        };
+
+        const removeItem = (id) => setItems(prev => prev.filter(i => i.id !== id));
+
+        const locationGroups = items.reduce((acc, item) => {
+            if (!acc[item.locationCode]) acc[item.locationCode] = { name: item.locationName, items: [] };
+            acc[item.locationCode].items.push(item);
+            return acc;
+        }, {});
+
+        const handlePrint = () => {
+            if (items.length === 0) return;
+            const bol = { date, items };
+            printDocument(buildInternalBOLHTML(bol));
+        };
+
+
+        const handleSave = () => {
+            if (items.length === 0) return;
+            const bol = {
+                _type:   'internalbol',
+                _id:     'ibol-' + Date.now(),
+                _savedAt: new Date().toISOString(),
+                date,
+                items,
+            };
+            const updated = [bol, ...history];
+            setHistory(updated);
+            saveIBOLHistory(updated);
+            setSavedMsg('Saved to history.');
+            setTimeout(() => setSavedMsg(''), 3000);
+        };
+
+        const handleEmailExport = () => {
+            const subject = encodeURIComponent(`Hazmat BOL - ${date}`);
+            window.location.href = `mailto:stockroom@pitt.edu?subject=${subject}`;
+        };
+
+        const handleClear = () => {
+            setItems([]);
+            setSelectedLoc(null);
+            setLocQuery('');
+            setUseCustomLoc(false);
+            setCustomLocName('');
+            setCustomLocCode('');
+            setCustomLocAddr('');
+            setSelectedChem(null);
+            setChemQuery('');
+            setQtyGal('');
+            setPieces('1');
+        };
+
+        const deleteHistory = (id) => {
+            const updated = history.filter(h => h._id !== id);
+            setHistory(updated);
+            saveIBOLHistory(updated);
+        };
+
+        return (
+            <div>
+                <div className="container page-content">
+
+                    {/* Sub-tabs */}
+                    <div className="sub-tabs" style={{marginBottom:'24px'}}>
+                        <button className={`sub-tab ${activeTab==='builder'?'active':''}`} onClick={() => setActiveTab('builder')}>📝 New BOL</button>
+                        <button className={`sub-tab ${activeTab==='history'?'active':''}`} onClick={() => setActiveTab('history')}>🗂️ History</button>
+                    </div>
+
+                    {activeTab === 'builder' && (
+                        <div>
+                            {/* Step 1: Date */}
+                            <div className="card" style={{marginBottom:'18px'}}>
+                                <h2>Step 1 — Shipment Date</h2>
+                                <div style={{display:'flex', gap:'16px', alignItems:'flex-end', flexWrap:'wrap'}}>
+                                    <div className="form-group" style={{marginBottom:0, flex:'0 0 220px'}}>
+                                        <label className="form-label">Date</label>
+                                        <input type="date" className="form-input" value={date} onChange={e => setDate(e.target.value)} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step 2 & 3: Add items */}
+                            <div className="card" style={{marginBottom:'18px'}}>
+                                <h2>Step 2 — Add Items</h2>
+                                <p style={{fontSize:'13px', color:'var(--muted)', marginBottom:'16px'}}>Select a delivery location and chemical for each package. Items with the same location will be grouped onto one BOL page.</p>
+
+                                <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'16px', marginBottom:'12px'}}>
+                                    {/* Location */}
+                                    <div>
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'6px'}}>
+                                            <label className="form-label" style={{margin:0}}>Delivery Location</label>
+                                            <label style={{fontSize:'12px', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', userSelect:'none'}}>
+                                                <input type="checkbox" checked={useCustomLoc} onChange={e => { setUseCustomLoc(e.target.checked); setSelectedLoc(null); setLocQuery(''); }} />
+                                                Enter manually
+                                            </label>
+                                        </div>
+                                        {!useCustomLoc ? (
+                                            <div style={{position:'relative'}}>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    placeholder="Search by name or code (e.g. BENDM, Langley)…"
+                                                    value={locQuery}
+                                                    onChange={e => { setLocQuery(e.target.value); setSelectedLoc(null); setLocHighlight(-1); }}
+                                                    onKeyDown={e => {
+                                                        if (!locResults.length) return;
+                                                        if (e.key === 'ArrowDown') { e.preventDefault(); setLocHighlight(h => Math.min(h + 1, locResults.length - 1)); }
+                                                        else if (e.key === 'ArrowUp') { e.preventDefault(); setLocHighlight(h => Math.max(h - 1, 0)); }
+                                                        else if (e.key === 'Enter') { e.preventDefault(); selectLocation(locResults[locHighlight >= 0 ? locHighlight : 0]); setLocHighlight(-1); }
+                                                        else if (e.key === 'Escape') { setLocResults([]); setLocHighlight(-1); }
+                                                    }}
+                                                />
+                                                {locResults.length > 0 && (
+                                                    <div style={{position:'absolute', top:'100%', left:0, right:0, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'0 0 6px 6px', zIndex:100, maxHeight:'220px', overflowY:'auto', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
+                                                        {locResults.map((loc, idx) => (
+                                                            <div key={loc.code}
+                                                                onClick={() => { selectLocation(loc); setLocHighlight(-1); }}
+                                                                style={{padding:'8px 12px', cursor:'pointer', borderBottom:'1px solid var(--border)', fontSize:'13px', background: idx === locHighlight ? 'var(--sky)' : '#fff'}}
+                                                                onMouseEnter={() => setLocHighlight(idx)}
+                                                                onMouseLeave={() => setLocHighlight(-1)}
+                                                            >
+                                                                <strong>{loc.code}</strong> — {loc.name}
+                                                                <div style={{fontSize:'11px', color:'var(--muted)'}}>{loc.address}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {selectedLoc && (
+                                                    <div style={{fontSize:'12px', color:'var(--muted)', marginTop:'4px'}}>
+                                                        📍 {selectedLoc.address}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
+                                                <input type="text" className="form-input" placeholder="Building Name" value={customLocName} onChange={e => setCustomLocName(e.target.value)} style={{gridColumn:'span 2', fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Building Code (e.g. CHVRN)" value={customLocCode} onChange={e => setCustomLocCode(e.target.value)} style={{fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Street Address" value={customLocAddr} onChange={e => setCustomLocAddr(e.target.value)} style={{fontSize:'13px'}} />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Chemical */}
+                                    <div>
+                                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'6px'}}>
+                                            <label className="form-label" style={{margin:0}}>Chemical / UN Number</label>
+                                            <label style={{fontSize:'12px', color:'var(--muted)', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', userSelect:'none'}}>
+                                                <input type="checkbox" checked={useCustomChem} onChange={e => { setUseCustomChem(e.target.checked); setSelectedChem(null); setChemQuery(''); }} />
+                                                Enter manually
+                                            </label>
+                                        </div>
+                                        {!useCustomChem ? (
+                                            <div style={{position:'relative'}}>
+                                                <input
+                                                    type="text"
+                                                    className="form-input"
+                                                    placeholder="Search by UN# or name (e.g. UN1090, Acetone)…"
+                                                    value={chemQuery}
+                                                    onChange={e => { setChemQuery(e.target.value); setSelectedChem(null); setChemHighlight(-1); }}
+                                                    onKeyDown={e => {
+                                                        if (!chemResults.length) return;
+                                                        if (e.key === 'ArrowDown') { e.preventDefault(); setChemHighlight(h => Math.min(h + 1, chemResults.length - 1)); }
+                                                        else if (e.key === 'ArrowUp') { e.preventDefault(); setChemHighlight(h => Math.max(h - 1, 0)); }
+                                                        else if (e.key === 'Enter') { e.preventDefault(); selectChem(chemResults[chemHighlight >= 0 ? chemHighlight : 0]); setChemHighlight(-1); }
+                                                        else if (e.key === 'Escape') { setChemResults([]); setChemHighlight(-1); }
+                                                    }}
+                                                />
+                                                {chemResults.length > 0 && (
+                                                    <div style={{position:'absolute', top:'100%', left:0, right:0, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'0 0 6px 6px', zIndex:100, maxHeight:'220px', overflowY:'auto', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
+                                                        {chemResults.map((chem, idx) => (
+                                                            <div key={chem.un}
+                                                                onClick={() => { selectChem(chem); setChemHighlight(-1); }}
+                                                                style={{padding:'8px 12px', cursor:'pointer', borderBottom:'1px solid var(--border)', fontSize:'13px', background: idx === chemHighlight ? 'var(--sky)' : '#fff'}}
+                                                                onMouseEnter={() => setChemHighlight(idx)}
+                                                                onMouseLeave={() => setChemHighlight(-1)}
+                                                            >
+                                                                <strong>{chem.un}</strong> — {chem.name}
+                                                                <div style={{fontSize:'11px', color:'var(--muted)'}}>Class {chem.hazClass} · PG {chem.pg || 'N/A'} · Density {chem.density} g/mL{chem.ltdQty ? ` · Ltd Qty: ${chem.ltdQty}` : ' · No Ltd Qty'}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                                {selectedChem && (
+                                                    <div style={{fontSize:'12px', color:'var(--muted)', marginTop:'4px'}}>
+                                                        Class {selectedChem.hazClass} · PG {selectedChem.pg || 'N/A'} · {selectedChem.density} g/mL
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
+                                                <input type="text" className="form-input" placeholder="UN# (e.g. UN1234)" value={customChemUN} onChange={e => setCustomChemUN(e.target.value)} style={{fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Hazard Class (e.g. 3)" value={customChemClass} onChange={e => setCustomChemClass(e.target.value)} style={{fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Proper Shipping Name" value={customChemName} onChange={e => setCustomChemName(e.target.value)} style={{gridColumn:'span 2', fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Packing Group (I, II, or III)" value={customChemPG} onChange={e => setCustomChemPG(e.target.value)} style={{fontSize:'13px'}} />
+                                                <input type="text" className="form-input" placeholder="Labels / Markings" value={customChemLabels} onChange={e => setCustomChemLabels(e.target.value)} style={{fontSize:'13px'}} />
+                                                <input type="number" className="form-input" placeholder="Density g/mL (default 1.0)" value={customChemDensity} onChange={e => setCustomChemDensity(e.target.value)} style={{gridColumn:'span 2', fontSize:'13px'}} step="0.001" min="0" />
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div style={{display:'flex', gap:'16px', alignItems:'flex-end', flexWrap:'wrap', marginBottom:'12px'}}>
+                                    <div className="form-group" style={{marginBottom:0, flex:'0 0 120px'}}>
+                                        <label className="form-label">Quantity</label>
+                                        <input type="number" className="form-input" min="0" step="0.001" value={qtyGal} onChange={e => setQtyGal(e.target.value)} placeholder="e.g. 1" />
+                                    </div>
+                                    <div className="form-group" style={{marginBottom:0, flex:'0 0 100px'}}>
+                                        <label className="form-label">Unit</label>
+                                        <select className="form-input" value={qtyUnit} onChange={e => setQtyUnit(e.target.value)} style={{cursor:'pointer'}}>
+                                            <option value="gal">Gallons</option>
+                                            <option value="pt">Pints</option>
+                                            <option value="L">Liters</option>
+                                            <option value="mL">mL</option>
+                                            <option value="g">Grams</option>
+                                            <option value="kg">kg</option>
+                                        </select>
+                                    </div>
+                                    <div className="form-group" style={{marginBottom:0, flex:'0 0 100px'}}>
+                                        <label className="form-label">Pieces</label>
+                                        <input type="number" className="form-input" min="1" step="1" value={pieces} onChange={e => setPieces(e.target.value)} placeholder="1" />
+                                    </div>
+                                    {(selectedChem || useCustomChem) && qtyGal && !isNaN(parseFloat(qtyGal)) && (
+                                        <div style={{fontSize:'13px', color:'var(--muted)', paddingBottom:'2px'}}>
+                                            ≈ <strong>{(toKg(qtyGal, qtyUnit, useCustomChem ? (parseFloat(customChemDensity) || 1.0) : selectedChem.density) * 2.20462).toFixed(3)} lbs</strong>
+                                            {!useCustomChem && selectedChem && selectedChem.ltdQty && selectedChem.ltdQty !== 'No LQ' && (
+                                                computeIsLtdQty(selectedChem, qtyGal, qtyUnit)
+                                                    ? <span style={{marginLeft:'10px', color:'#00873a', fontWeight:600}}>✓ Within Ltd Qty (≤{selectedChem.ltdQty})</span>
+                                                    : <span style={{marginLeft:'10px', color:'#FF5B45', fontWeight:600}}>⚠ Exceeds Ltd Qty threshold ({selectedChem.ltdQty}) — full labels required</span>
+                                            )}
+                                        </div>
+                                    )}
+                                    <button
+                                        className="btn btn-primary"
+                                        onClick={addItem}
+                                        disabled={(!useCustomLoc && !selectedLoc) || (useCustomLoc && !customLocName.trim()) || (!useCustomChem && !selectedChem) || (useCustomChem && (!customChemUN.trim() || !customChemName.trim())) || !qtyGal || isNaN(parseFloat(qtyGal))}
+                                        style={{flex:'0 0 auto'}}
+                                    >
+                                        + Add Item
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Step 3: Review */}
+                            {items.length > 0 && (
+                                <div className="card" style={{marginBottom:'18px'}}>
+                                    <h2>Step 3 — Review ({Object.keys(locationGroups).length} location{Object.keys(locationGroups).length !== 1 ? 's' : ''}, {items.length} item{items.length !== 1 ? 's' : ''})</h2>
+                                    {Object.entries(locationGroups).map(([code, group]) => (
+                                        <div key={code} style={{marginBottom:'16px'}}>
+                                            <div style={{background:'var(--navy-bg)', color:'#fff', padding:'7px 12px', borderRadius:'6px 6px 0 0', fontFamily:'var(--gothic)', fontSize:'12px', letterSpacing:'0.06em', textTransform:'uppercase'}}>
+                                                📍 {group.name} ({code}) — will generate 1 BOL page
+                                            </div>
+                                            <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px'}}>
+                                                <thead>
+                                                    <tr style={{background:'var(--bg)'}}>
+                                                        <th style={{padding:'6px 10px', textAlign:'left', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>UN #</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'left', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Chemical</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'center', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Class</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'center', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>PG</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'center', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Pcs</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'right', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Qty</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'right', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>lbs</th>
+                                                        <th style={{padding:'6px 10px', textAlign:'center', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Ltd Qty</th>
+                                                        <th style={{padding:'6px 10px', borderBottom:'1px solid var(--border)'}}></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {group.items.map(item => (
+                                                        <tr key={item.id} style={{borderBottom:'1px solid var(--border)'}}>
+                                                            <td style={{padding:'6px 10px', fontFamily:'var(--mono)', fontSize:'12px', color:'var(--royal)'}}>{item.un}</td>
+                                                            <td style={{padding:'6px 10px'}}>{item.name}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'center'}}>{item.hazClass}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'center'}}>{item.pg || '—'}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'center'}}>{item.pieces}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--mono)'}}>{item.qtyGal.toFixed(3)} {item.qtyUnit || 'gal'}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--mono)'}}>{(item.qtyKg * 2.20462).toFixed(2)}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'center'}}>{item.isLtdQty ? <span style={{color:'#00873a', fontWeight:600}}>Yes</span> : '—'}</td>
+                                                            <td style={{padding:'6px 10px', textAlign:'center'}}>
+                                                                <button onClick={() => removeItem(item.id)} style={{background:'none', border:'none', cursor:'pointer', color:'#FF5B45', fontSize:'16px', padding:'0 4px'}} title="Remove">×</button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ))}
+
+                                    <div style={{display:'flex', gap:'10px', flexWrap:'wrap', marginTop:'8px'}}>
+                                        <button className="btn btn-primary" onClick={handlePrint}>🖨️ Print / Save as PDF</button>
+                                        <button className="btn btn-outline" onClick={handleSave}>💾 Save to History</button>
+                                        <button className="btn btn-outline" onClick={handleEmailExport}>📧 Email BOL</button>
+                                        <button className="btn btn-ghost" onClick={handleClear}>Clear All</button>
+                                        {savedMsg && <span style={{fontSize:'13px', color:'#00873a', alignSelf:'center'}}>{savedMsg}</span>}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'history' && (
+                        <div className="card">
+                            <h2>BOL History</h2>
+                            {history.length === 0 ? (
+                                <div style={{padding:'32px', textAlign:'center', color:'var(--muted)', fontSize:'14px'}}>No BOLs saved yet.</div>
+                            ) : (
+                                <table style={{width:'100%', borderCollapse:'collapse', fontSize:'13px'}}>
+                                    <thead>
+                                        <tr style={{background:'var(--bg)'}}>
+                                            <th style={{padding:'8px 12px', textAlign:'left', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Date</th>
+                                            <th style={{padding:'8px 12px', textAlign:'left', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Locations</th>
+                                            <th style={{padding:'8px 12px', textAlign:'center', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Items</th>
+                                            <th style={{padding:'8px 12px', textAlign:'left', borderBottom:'1px solid var(--border)', fontSize:'11px', textTransform:'uppercase', letterSpacing:'0.04em'}}>Saved</th>
+                                            <th style={{padding:'8px 12px', borderBottom:'1px solid var(--border)'}}></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {history.map(rec => {
+                                            const locs = [...new Set(rec.items.map(i => i.locationCode))].join(', ');
+                                            return (
+                                                <tr key={rec._id} style={{borderBottom:'1px solid var(--border)'}}>
+                                                    <td style={{padding:'8px 12px', fontFamily:'var(--mono)', fontSize:'12px'}}>{rec.date}</td>
+                                                    <td style={{padding:'8px 12px'}}>{locs}</td>
+                                                    <td style={{padding:'8px 12px', textAlign:'center'}}>{rec.items.length}</td>
+                                                    <td style={{padding:'8px 12px', fontSize:'12px', color:'var(--muted)'}}>{new Date(rec._savedAt).toLocaleDateString()}</td>
+                                                    <td style={{padding:'8px 12px', display:'flex', gap:'8px'}}>
+                                                        <button className="btn btn-outline" style={{fontSize:'11px', padding:'3px 10px'}} onClick={() => printDocument(buildInternalBOLHTML(rec))}>🖨️ Reprint</button>
+                                                        <button onClick={() => deleteHistory(rec._id)} style={{background:'none', border:'none', cursor:'pointer', color:'#FF5B45', fontSize:'16px', padding:'0 4px'}} title="Delete">×</button>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    )}
+
+                </div>
+            </div>
+        );
+    }
+
+    mountPage({
+        page: 'hazmat-bol',
+        title: "Hazmat BOL",
+        desc: "DOT hazardous materials transportation log \u2014 not in commerce (49 CFR \u00a7173.6)",
+        render: (data) => <InternalBOLPage />
+    });
+    </script>
+</body>
+</html>

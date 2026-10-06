@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catalog Search — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+       CATALOG SEARCH — reads ?q= on load, runs automatically
+    ══════════════════════════════════════════════════════════════════════ */
+    function SearchPage({ data }) {
+        const { inventory, staffNames, dbStatus } = data;
+        const initialQ = new URLSearchParams(window.location.search).get('q') || '';
+        const [input, setInput] = useState(initialQ);
+        const [query, setQuery] = useState(initialQ);
+        const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+        const [openKey, setOpenKey] = useState(null);
+
+        const results = useMemo(() => (query.trim() && inventory.length) ? searchCatalog(inventory, staffNames, query) : null,
+                                [query, inventory, staffNames]);
+
+        const submit = (e) => {
+            e.preventDefault();
+            const v = input.trim();
+            setQuery(v); setOpenKey(null); setSortConfig({ key: null, direction: 'asc' });
+            try { history.replaceState(null, '', v ? '?q=' + encodeURIComponent(v) : window.location.pathname); } catch(err) {}
+        };
+        const handleSort = key => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+
+        const nameOf = item => displayNameFor(item, staffNames);
+        const sorted = useMemo(() => {
+            if (!results || !sortConfig.key) return results;
+            const dir = sortConfig.direction === 'asc' ? 1 : -1;
+            return [...results].sort((a, b) => {
+                const k = sortConfig.key;
+                if (k === 'location') {
+                    const la = parseLocation(a.location), lb = parseLocation(b.location);
+                    if (la.section !== lb.section) return dir * (la.section||'Z').localeCompare(lb.section||'Z');
+                    if (la.rack !== lb.rack) return dir * (la.rack - lb.rack);
+                    return dir * (la.shelf - lb.shelf);
+                }
+                let av, bv;
+                if (k === 'name') { av = nameOf(a).toLowerCase(); bv = nameOf(b).toLowerCase(); }
+                else if (k === 'manufacturerSKUs') { av = a.manufacturerSKUs.join(', ').toLowerCase(); bv = b.manufacturerSKUs.join(', ').toLowerCase(); }
+                else if (k === 'ourPrice' || k === 'onHand') { av = parseFloat(a[k] || 0); bv = parseFloat(b[k] || 0); }
+                else { av = String(a[k] || '').toLowerCase(); bv = String(b[k] || '').toLowerCase(); }
+                return av < bv ? -dir : av > bv ? dir : 0;
+            });
+        }, [results, sortConfig, staffNames]);
+
+        const rowKey = (item, i) => item.internalSKU + '|' + item.location + '|' + i;
+        const indexOf = useMemo(() => { const m = new Map(); (results || []).forEach((it, i) => m.set(it, i)); return m; }, [results]);
+        // A single hit (e.g. arriving from Quick Launch) opens itself
+        useEffect(() => { if (results && results.length === 1) setOpenKey(rowKey(results[0], 0)); }, [results]);
+
+        const detail = (item) => {
+            const fields = [
+                ['Internal SKU', item.internalSKU, true],
+                ['Description', nameOf(item)],
+                ...(fullNameFor(item, staffNames) && fullNameFor(item, staffNames) !== item.itemName ? [['Inventory name', item.itemName]] : []),
+                ['Manufacturer SKUs', item.manufacturerSKUs.join(', ') || '—', true],
+                ['Location', item.location, true],
+                ['Vendor', item.vendor || '—'],
+                ['Unit', item.uom || '—'],
+                ['Alternate unit', item.altUom ? item.altUom + (item.convFactor ? ` (×${item.convFactor})` : '') : '—'],
+                ['Child part', item.childPartNbr ? item.childPartNbr + (item.childConvFactor ? ` (×${item.childConvFactor})` : '') : '—', true],
+                ['Our price', item.ourPrice ? '$' + item.ourPrice : '—', true],
+                ['On hand', item.onHand !== '' ? item.onHand : '—', true],
+                ['Max stock', item.maxStock || '—', true],
+                ['Reorder point', item.reorderPoint || '—', true],
+            ];
+            return (
+                <div className="detail-grid">
+                    {fields.map(([k, v, mono]) => (
+                        <div key={k}><div className="k">{k}</div><div className={`v ${mono ? 'mono' : ''}`}>{v}</div></div>
+                    ))}
+                </div>
+            );
+        };
+
+        const Th = ({ k, children, style }) => (
+            <th onClick={() => handleSort(k)} style={style}>{children} <SortIcon sortConfig={sortConfig} columnKey={k} /></th>
+        );
+
+        return (
+            <div className="search-page">
+                <form className="search-bar" onSubmit={submit} role="search">
+                    <input type="search" autoFocus={!initialQ} autoComplete="off" value={input} onChange={e => setInput(e.target.value)}
+                           placeholder="SKU, manufacturer SKU, item name, vendor, or bin location" aria-label="Catalog search" />
+                    <button className="btn btn-primary" type="submit" style={{padding:'0 26px'}}>Search</button>
+                </form>
+
+                {dbStatus === 'error' && <div className="alert alert-error">The inventory database could not be loaded, so search is unavailable. Check that inventory-status-report.xlsx is in the site root.</div>}
+
+                {!query.trim() && dbStatus !== 'error' && (
+                    <div className="search-empty">Enter a SKU, item name, vendor, or bin location to search {dbStatus === 'ok' ? inventory.length.toLocaleString() + ' items' : 'the catalog'}.</div>
+                )}
+
+                {query.trim() && dbStatus === 'loading' && (
+                    <div className="table-wrap"><table className="tbl-dense"><tbody>
+                        {[0,1,2,3,4,5].map(i => <tr key={i} className="skeleton-row"><td><span className="skeleton" style={{width:'100%', height:14}} /></td></tr>)}
+                    </tbody></table></div>
+                )}
+
+                {results && (
+                    <>
+                        <div className="search-meta">{results.length.toLocaleString()} {results.length === 1 ? 'item' : 'items'} for “{query}”</div>
+                        {results.length > 0 ? (
+                            <>
+                                <div className="table-wrap">
+                                    <table className="tbl-dense">
+                                        <thead>
+                                            <tr>
+                                                <Th k="location">Location</Th>
+                                                <Th k="internalSKU">SKU</Th>
+                                                <Th k="name">Description</Th>
+                                                <Th k="manufacturerSKUs">Manufacturer SKU</Th>
+                                                <Th k="uom">Unit</Th>
+                                                <Th k="vendor">Vendor</Th>
+                                                <Th k="ourPrice" style={{textAlign:'right'}}>Our Price</Th>
+                                                <Th k="onHand" style={{textAlign:'center'}}>On Hand</Th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {sorted.map((item, i) => {
+                                                const key = rowKey(item, indexOf.get(item));
+                                                const open = openKey === key;
+                                                return (
+                                                    <React.Fragment key={key}>
+                                                        <tr className={`result-row ${open ? 'open' : ''}`} onClick={() => setOpenKey(open ? null : key)} aria-expanded={open}>
+                                                            <td style={{fontFamily:'var(--mono)', fontWeight:700, fontSize:'12.5px', whiteSpace:'nowrap'}}><span className="chev">▸</span>{item.location}</td>
+                                                            <td style={{fontFamily:'var(--mono)', fontSize:'12px', color:'var(--royal)', whiteSpace:'nowrap'}}>{item.internalSKU}</td>
+                                                            <td>{nameOf(item)}</td>
+                                                            <td style={{fontFamily:'var(--mono)', fontSize:'12px', color:'var(--muted)'}}>{item.manufacturerSKUs.join(', ')}</td>
+                                                            <td style={{whiteSpace:'nowrap'}}>
+                                                                <div>{item.uom}</div>
+                                                                {item.altUom && <div style={{fontSize:'11px', color:'var(--muted)'}}>{item.altUom}{item.convFactor ? ` ×${item.convFactor}` : ''}</div>}
+                                                                {item.childPartNbr && <div style={{fontSize:'11px', color:'var(--muted)'}}>→ {item.childPartNbr}</div>}
+                                                            </td>
+                                                            <td>{item.vendor || '—'}</td>
+                                                            <td style={{textAlign:'right', fontFamily:'var(--mono)', fontWeight:700, color:'var(--green)', whiteSpace:'nowrap'}}>{item.ourPrice ? '$' + item.ourPrice : <span style={{color:'var(--muted)', fontWeight:400}}>—</span>}</td>
+                                                            <td style={{textAlign:'center'}}><OnHandBadge item={item} /></td>
+                                                        </tr>
+                                                        {open && <tr><td colSpan={8} className="detail-cell">{detail(item)}</td></tr>}
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="alert alert-info" style={{marginTop:'14px', marginBottom:0}}>
+                                    <strong>Note:</strong> Prices are subject to change and should not be considered a quote. Please confirm current pricing with a sales representative.
+                                </div>
+                            </>
+                        ) : (
+                            <div className="search-empty">No items found matching <strong>“{query}”</strong>. Try a shorter term or part of the SKU.</div>
+                        )}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    mountPage({ page: 'search', title: 'Catalog Search', desc: 'Search by SKU, manufacturer SKU, item name, vendor, or bin location', render: (data) => <SearchPage data={data} /> });
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cycle Count — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+    function buildCycleCountHTML(countedRows, missingRows, session, currentRack, currentSection) {
+        const rangeLabel = session.startRack === currentRack
+            ? `Section ${currentSection} — Rack ${currentRack}`
+            : `Section ${currentSection} — Racks ${session.startRack}–${currentRack}`;
+
+        const rows = countedRows.map(it => {
+            const statusColor = it.variance !== 0 || it.misplaced ? '#fff0ed' : 'white';
+            const varColor    = it.variance === 0 ? '#00AD6E' : '#FF5B45';
+            const childRow = `
+                <tr style="background:#eef1fb">
+                    <td colspan="2" style="padding-left:28px;font-size:10px;color:#5a6072">↳ parent</td>
+                    <td class="mono" style="font-size:10px;color:#003594">${it.parentSKU}</td>
+                    <td colspan="5" style="font-size:10px;color:#5a6072;font-style:italic">${it.parentName}</td>
+                </tr>`;
+            return `
+                <tr style="background:${statusColor}">
+                    <td class="mono" style="font-size:10px;font-weight:600;color:#003594">${it.countedAt}</td>
+                    <td class="mono" style="font-size:10px;color:${it.misplaced?'#FF5B45':'#5a6072'}">${it.expectedLocation}</td>
+                    <td class="mono" style="font-size:10px;color:#003594">${it.sku}</td>
+                    <td style="font-size:11px">${it.itemName}</td>
+                    <td style="font-size:10px">${it.uom}</td>
+                    <td style="text-align:center;font-size:11px">${it.onHand}</td>
+                    <td style="text-align:center;font-size:11px;font-weight:600">${it.counted}</td>
+                    <td style="text-align:center;font-size:12px;font-weight:700;color:${varColor}">${it.variance>0?'+':''}${it.variance}</td>
+                </tr>${it.parentSKU ? childRow : ''}`;
+        }).join('');
+
+        const missingRows2 = missingRows.map(i => `
+            <tr class="missing-row">
+                <td class="mono" style="font-size:10px">${i.location || i.expectedLocation}</td>
+                <td class="mono" style="font-size:10px;color:#003594">${i.internalSKU || i.sku}</td>
+                <td style="font-size:11px">${i.itemName}</td>
+                <td style="font-size:10px">${i.uom}</td>
+                <td style="text-align:center;font-size:11px">${i.onHand||0}</td>
+            </tr>`).join('');
+
+        const missingSection = missingRows.length > 0 ? `
+            <h2>Missing Items</h2>
+            <table><thead><tr>
+                <th>Expected Location</th><th>SKU</th><th>Item Name</th><th>UoM</th><th>System On-Hand</th>
+            </tr></thead>
+            <tbody>${missingRows2}</tbody></table>` : '';
+
+        const variances = countedRows.filter(i=>i.variance!==0).length;
+        const misplaced = countedRows.filter(i=>i.misplaced).length;
+
+        return `<!DOCTYPE html><html><head>${PRINT_HEAD}</head><body>
+            <h1>Cycle Count Report</h1>
+            <p style="text-align:center;font-family:var(--gothic);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#5a6072;margin-bottom:16px">
+                ${rangeLabel} &nbsp;·&nbsp; ${new Date().toLocaleDateString()}
+            </p>
+            <h2>Counted Items</h2>
+            <table><thead><tr>
+                <th>Found At</th><th>Expected</th><th>SKU</th><th>Item Name</th>
+                <th>UoM</th><th>System</th><th>Counted</th><th>Variance</th>
+            </tr></thead>
+            <tbody>${rows}</tbody></table>
+            ${missingSection}
+            <div class="summary-box">
+                Counted: ${countedRows.length} &nbsp;·&nbsp;
+                Variances: ${variances} &nbsp;·&nbsp;
+                Misplaced: ${misplaced} &nbsp;·&nbsp;
+                Missing: ${missingRows.length}
+            </div>
+            </body></html>`;
+    }
+
+        /* ══════════════════════════════════════════════════════════════════════
+       CYCLE COUNT PAGE
+    ══════════════════════════════════════════════════════════════════════ */
+    function CycleCountPage({ inventory }) {
+        // ── Session: tracks start point (fixed) and current position (moves) ──
+        const [session, setSession]           = useState(null);   // { startSection, startRack, startTime }
+        const [startSection, setStartSection] = useState('');
+        const [startRack, setStartRack]       = useState('');
+        const [currentSection, setCurrentSection] = useState(''); // active section while counting
+        const [currentRack, setCurrentRack]       = useState(''); // active rack while counting
+        const [shelf, setShelf]               = useState('');
+        const [scannedSKU, setScannedSKU]     = useState('');
+        const [countQty, setCountQty]         = useState('');
+        const [recountQty, setRecountQty]     = useState('');
+        const [currentItem, setCurrentItem]   = useState(null);
+        const [needsRecount, setNeedsRecount] = useState(false);
+        const [countedItems, setCountedItems] = useState([]);
+        const [misplacedItem, setMisplacedItem] = useState(null);
+
+        // ── Location helpers ──────────────────────────────────────────────────
+        const getUniqueSections = () => {
+            const s = new Set();
+            inventory.forEach(i => {
+                if (!i.location.toUpperCase().includes('SS')) {
+                    const p = parseLocation(i.location);
+                    if (p.section) s.add(p.section);
+                }
+            });
+            return Array.from(s).sort();
+        };
+        const getUniqueRacks = (sec) => {
+            const r = new Set();
+            inventory.forEach(i => { const p = parseLocation(i.location); if (p.section === sec) r.add(p.rack); });
+            return Array.from(r).filter(r => r < 999).sort((a,b) => a-b);
+        };
+        const getUniqueShelves = (sec, r) => {
+            const s = new Set();
+            inventory.forEach(i => { const p = parseLocation(i.location); if (p.section === sec && p.rack === parseInt(r)) s.add(p.shelf); });
+            return Array.from(s).filter(s => s < 999).sort((a,b) => a-b);
+        };
+
+        // ── Parent/child helpers ──────────────────────────────────────────────
+        // Build a map: childSKU (normalized) → parent item
+        const getParentMap = () => {
+            const map = {};
+            inventory.forEach(parent => {
+                if (parent.childPartNbr) {
+                    map[normalizeSKU(parent.childPartNbr)] = parent;
+                }
+            });
+            return map;
+        };
+
+        // ── Missing items: from startRack through currentRack (inclusive) ─────
+        const getAllMissingItems = () => {
+            if (!session) return [];
+            const startR = parseInt(session.startRack);
+            const endR   = parseInt(currentRack);
+            const allRacks = getUniqueRacks(session.startSection);
+            // All racks from startRack index through currentRack index
+            const startIdx = allRacks.indexOf(startR);
+            const endIdx   = allRacks.indexOf(endR);
+            const coveredRacks = new Set(allRacks.slice(startIdx, endIdx + 1));
+
+            const expected = inventory.filter(i => {
+                if (i.location.toUpperCase().includes('SS')) return false;
+                const p = parseLocation(i.location);
+                return p.section === session.startSection && coveredRacks.has(p.rack);
+            });
+            const counted = new Set(countedItems.map(i => normalizeSKU(i.sku)));
+            return expected.filter(i => !counted.has(normalizeSKU(i.internalSKU)));
+        };
+
+        // ── Resolve parent/child relationships for export ─────────────────────
+        // Returns { countedRows, missingRows } with parent info folded in
+        const resolveParentChild = () => {
+            const parentMap   = getParentMap();
+            const rawMissing  = getAllMissingItems();
+            const countedNorm = new Set(countedItems.map(i => normalizeSKU(i.sku)));
+
+            // Annotate each counted item with its parent (if any)
+            const countedRows = countedItems.map(ci => {
+                const parent = parentMap[normalizeSKU(ci.sku)];
+                return { ...ci, parentSKU: parent ? parent.internalSKU : null, parentName: parent ? parent.itemName : null };
+            });
+
+            // For missing items: suppress parent if its child was counted
+            const missingRows = rawMissing.filter(mi => {
+                // If this item IS a parent (has a childPartNbr) and that child was counted → suppress
+                if (mi.childPartNbr && countedNorm.has(normalizeSKU(mi.childPartNbr))) return false;
+                return true;
+            });
+
+            return { countedRows, missingRows };
+        };
+
+        // ── Session start ─────────────────────────────────────────────────────
+        const startSession = () => {
+            if (!startSection || !startRack) return;
+            const shelves = getUniqueShelves(startSection, startRack);
+            setSession({ startSection, startRack, startTime: new Date().toISOString() });
+            setCurrentSection(startSection);
+            setCurrentRack(startRack);
+            setShelf(shelves[0]?.toString() || '1');
+            setCountedItems([]); setScannedSKU(''); setCurrentItem(null);
+        };
+
+        // ── Scan / count ──────────────────────────────────────────────────────
+        const handleScan = () => {
+            if (!scannedSKU.trim()) return;
+            const ns = normalizeSKU(scannedSKU);
+            const alreadyCounted = countedItems.find(i => normalizeSKU(i.sku) === ns);
+            if (alreadyCounted) {
+                if (confirm(`Already counted ${alreadyCounted.sku}. Remove previous entry to re-count?`)) {
+                    setCountedItems(ci => ci.filter(i => normalizeSKU(i.sku) !== ns));
+                } else { setScannedSKU(''); return; }
+            }
+            const item = inventory.find(i => normalizeSKU(i.internalSKU) === ns || i.manufacturerSKUs.some(m => normalizeSKU(m) === ns));
+            if (!item) { alert('SKU not found in database.'); setScannedSKU(''); return; }
+            const loc    = parseLocation(item.location);
+            const curLoc = `${currentSection}-${currentRack}-${shelf}`;
+            const expLoc = `${loc.section}-${loc.rack}-${loc.shelf}`;
+            if (curLoc !== expLoc) { setMisplacedItem({ item, expectedLoc: expLoc }); return; }
+            setCurrentItem(item); setCountQty(''); setRecountQty(''); setNeedsRecount(false);
+        };
+
+        const submitCount = () => {
+            if (!countQty && !needsRecount) return;
+            if (needsRecount && !recountQty) return;
+            const counted = parseInt(needsRecount ? recountQty : countQty);
+            const onHand  = parseInt(currentItem.onHand || 0);
+            if (counted !== onHand && !needsRecount) { setNeedsRecount(true); return; }
+            const loc    = parseLocation(currentItem.location);
+            const expLoc = `${loc.section}-${loc.rack}-${loc.shelf}`;
+            const actLoc = `${currentSection}-${currentRack}-${shelf}`;
+            setCountedItems(ci => [...ci, {
+                sku: currentItem.internalSKU, itemName: currentItem.itemName,
+                expectedLocation: currentItem.location,
+                countedAt: actLoc, uom: currentItem.uom, onHand, counted,
+                variance: counted - onHand, misplaced: expLoc !== actLoc,
+                timestamp: new Date().toISOString()
+            }]);
+            setScannedSKU(''); setCurrentItem(null); setCountQty(''); setRecountQty(''); setNeedsRecount(false);
+        };
+
+        // ── Shelf / rack navigation ────────────────────────────────────────────
+        const isLastShelf = () => {
+            const shelves = getUniqueShelves(currentSection, currentRack);
+            return shelves.indexOf(parseInt(shelf)) >= shelves.length - 1;
+        };
+        const isLastRack = () => {
+            const racks = getUniqueRacks(currentSection);
+            return racks.indexOf(parseInt(currentRack)) >= racks.length - 1;
+        };
+
+        const nextShelf = () => {
+            const shelves = getUniqueShelves(currentSection, currentRack);
+            const idx = shelves.indexOf(parseInt(shelf));
+            if (idx < shelves.length - 1) {
+                setShelf(shelves[idx + 1].toString());
+                setScannedSKU(''); setCurrentItem(null);
+            }
+        };
+        const prevShelf = () => {
+            const shelves = getUniqueShelves(currentSection, currentRack);
+            const idx = shelves.indexOf(parseInt(shelf));
+            if (idx > 0) {
+                setShelf(shelves[idx - 1].toString());
+                setScannedSKU(''); setCurrentItem(null);
+            } else {
+                // Back to previous rack's last shelf
+                const racks = getUniqueRacks(currentSection);
+                const rIdx  = racks.indexOf(parseInt(currentRack));
+                if (rIdx > 0) {
+                    const prevRack   = racks[rIdx - 1];
+                    const prevShelves = getUniqueShelves(currentSection, prevRack);
+                    setCurrentRack(prevRack.toString());
+                    setShelf(prevShelves[prevShelves.length - 1]?.toString() || '1');
+                    setScannedSKU(''); setCurrentItem(null);
+                } else {
+                    alert('Already at the first shelf.');
+                }
+            }
+        };
+        const nextRack = () => {
+            const racks = getUniqueRacks(currentSection);
+            const idx   = racks.indexOf(parseInt(currentRack));
+            if (idx < racks.length - 1) {
+                const nr      = racks[idx + 1];
+                const shelves = getUniqueShelves(currentSection, nr);
+                setCurrentRack(nr.toString());
+                setShelf(shelves[0]?.toString() || '1');
+                setScannedSKU(''); setCurrentItem(null);
+            }
+        };
+
+        // ── Export CSV ────────────────────────────────────────────────────────
+        const exportCSV = () => {
+            const { countedRows, missingRows } = resolveParentChild();
+            const allRows = [
+                ...countedRows.map(i => ({
+                    countedAt: i.countedAt, expectedLocation: i.expectedLocation,
+                    sku: i.sku, itemName: i.itemName, uom: i.uom,
+                    onHand: i.onHand, counted: i.counted, variance: i.variance,
+                    status: i.misplaced ? 'MISPLACED' : i.variance === 0 ? 'OK' : 'VARIANCE',
+                    parentSKU: i.parentSKU || '', parentName: i.parentName || '',
+                    timestamp: i.timestamp
+                })),
+                ...missingRows.map(i => ({
+                    countedAt: '-', expectedLocation: i.location,
+                    sku: i.internalSKU, itemName: i.itemName, uom: i.uom,
+                    onHand: i.onHand || 0, counted: 0, variance: -(parseInt(i.onHand) || 0),
+                    status: 'MISSING', parentSKU: '', parentName: '',
+                    timestamp: new Date().toISOString()
+                }))
+            ];
+            const header = 'Counted At,Expected Location,SKU,Item,UoM,System On-Hand,Counted,Variance,Status,Parent SKU,Parent Item,Time';
+            const csv = header + '\n' + allRows.map(i =>
+                `${i.countedAt},${i.expectedLocation},${i.sku},"${i.itemName}",${i.uom},${i.onHand},${i.counted},${i.variance},${i.status},"${i.parentSKU}","${i.parentName}",${i.timestamp}`
+            ).join('\n');
+            const blob = new Blob([csv], { type:'text/csv' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            const range = session.startRack === currentRack
+                ? `${currentSection}${currentRack}`
+                : `${currentSection}${session.startRack}-${currentRack}`;
+            a.href = url;
+            a.download = `cycle_count_${range}_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        };
+
+        const endSession = () => {
+            if (confirm('End session? Export your data first!')) {
+                setSession(null); setCountedItems([]); setCurrentItem(null);
+                setStartSection(''); setStartRack('');
+                setCurrentSection(''); setCurrentRack(''); setShelf('');
+            }
+        };
+
+        // ── Render ────────────────────────────────────────────────────────────
+        const { countedRows: resolvedCounted, missingRows: resolvedMissing } = session
+            ? resolveParentChild()
+            : { countedRows: [], missingRows: [] };
+
+        // Range label for session header
+        const rangeLabel = session
+            ? (session.startRack === currentRack
+                ? `Section ${currentSection} — Rack ${currentRack} — Shelf ${shelf}`
+                : `Section ${currentSection} — Racks ${session.startRack}–${currentRack} — Shelf ${shelf}`)
+            : '';
+
+        return (
+            <div>
+                <div className="container page-content">
+                    {!session ? (
+                        <div className="card" style={{maxWidth:'480px'}}>
+                            <h2>Start New Session</h2>
+                            <p style={{fontSize:'13px', color:'var(--muted)', marginBottom:'18px'}}>
+                                Select your starting rack. You can continue across racks during the session.
+                            </p>
+                            <div className="grid-2">
+                                <div className="form-group">
+                                    <label className="form-label">Section</label>
+                                    <select className="form-select" value={startSection} onChange={e => { setStartSection(e.target.value); setStartRack(''); }}>
+                                        <option value="">Select…</option>
+                                        {getUniqueSections().map(s => <option key={s} value={s}>Section {s}</option>)}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Starting Rack</label>
+                                    <select className="form-select" value={startRack} onChange={e => setStartRack(e.target.value)} disabled={!startSection}>
+                                        <option value="">Select…</option>
+                                        {startSection && getUniqueRacks(startSection).map(r => <option key={r} value={r}>Rack {r}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                            <button onClick={startSession} disabled={!startSection || !startRack} className="btn btn-primary btn-block">Start Session</button>
+                        </div>
+                    ) : (
+                        <div>
+                            {/* Session header */}
+                            <div className="session-header no-print">
+                                <div>
+                                    <h3>{rangeLabel}</h3>
+                                    <p>Counted: {countedItems.length} items &nbsp;·&nbsp; Missing: {resolvedMissing.length}</p>
+                                </div>
+                                <div style={{display:'flex', gap:'10px'}}>
+                                    <button onClick={() => printDocument(buildCycleCountHTML(resolvedCounted, resolvedMissing, session, currentRack, currentSection))} disabled={!countedItems.length} className="btn btn-outline btn-sm" style={{color:'#fff', borderColor:'rgba(255,255,255,0.4)'}}>🖨 Print</button>
+                                    <button onClick={exportCSV} disabled={!countedItems.length} className="btn btn-gold btn-sm">⬇ CSV</button>
+                                    <button onClick={endSession} className="btn btn-red btn-sm">End Session</button>
+                                </div>
+                            </div>
+
+                            {/* Shelf navigation */}
+                            <div className="btn-group no-print" style={{marginBottom:'20px'}}>
+                                <button onClick={prevShelf} className="btn btn-ghost" style={{fontSize:'15px'}}>← Prev Shelf</button>
+                                {isLastShelf() && !isLastRack()
+                                    ? <button onClick={nextRack} className="btn btn-primary" style={{fontSize:'15px'}}>Next Rack →</button>
+                                    : <button onClick={nextShelf} disabled={isLastShelf() && isLastRack()} className="btn btn-primary" style={{fontSize:'15px'}}>
+                                        {isLastShelf() && isLastRack() ? 'Last Shelf' : 'Next Shelf →'}
+                                      </button>
+                                }
+                            </div>
+
+                            {/* Misplaced / scan / count UI */}
+                            {misplacedItem ? (
+                                <div className="alert alert-error" style={{fontSize:'15px', padding:'20px'}}>
+                                    <div style={{fontWeight:700, fontSize:'17px', marginBottom:'10px'}}>⚠ MISPLACED ITEM</div>
+                                    <div style={{fontSize:'16px', marginBottom:'4px'}}>{misplacedItem.item.itemName}</div>
+                                    <div style={{fontSize:'13px', color:'var(--dark-red)', marginBottom:'4px'}}>SKU: {misplacedItem.item.internalSKU}</div>
+                                    <div>Expected: <strong>{misplacedItem.expectedLoc}</strong> · Found at: <strong>{currentSection}-{currentRack}-{shelf}</strong></div>
+                                    <div className="btn-group" style={{marginTop:'14px'}}>
+                                        <button onClick={() => { setCurrentItem(misplacedItem.item); setMisplacedItem(null); setCountQty(''); setRecountQty(''); setNeedsRecount(false); }} className="btn btn-gold">Count Anyway</button>
+                                        <button onClick={() => { setMisplacedItem(null); setScannedSKU(''); }} className="btn btn-ghost">Skip</button>
+                                    </div>
+                                </div>
+                            ) : !currentItem ? (
+                                <div className="card">
+                                    <div className="form-group">
+                                        <label className="form-label" style={{fontSize:'14px'}}>Scan or Enter Barcode</label>
+                                        <input
+                                            type="text"
+                                            className="form-input"
+                                            value={scannedSKU}
+                                            onChange={e => setScannedSKU(e.target.value)}
+                                            onKeyPress={e => e.key === 'Enter' && handleScan()}
+                                            autoFocus
+                                            style={{fontSize:'20px', padding:'16px', textAlign:'center', border:'2px solid var(--royal)', letterSpacing:'0.05em'}}
+                                        />
+                                    </div>
+                                    <button onClick={handleScan} className="btn btn-primary btn-block" style={{fontSize:'16px', padding:'14px'}}>Lookup Item</button>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div className="scan-display">
+                                        <div className="item-name">{currentItem.itemName}</div>
+                                        <div className="item-detail">SKU: <strong style={{fontFamily:'var(--mono)'}}>{currentItem.internalSKU}</strong></div>
+                                        <div className="item-detail">Location: {currentItem.location}</div>
+                                        <div className="item-detail" style={{fontSize:'18px', marginTop:'8px'}}>Unit: <strong>{currentItem.uom}</strong></div>
+                                        <div className="item-detail">System On-Hand: <strong style={{fontSize:'20px'}}>{currentItem.onHand || '0'}</strong></div>
+                                        <div className="item-qty-label">{needsRecount ? 'RECOUNT — Mismatch detected. Please count again.' : 'Enter Count'}</div>
+                                    </div>
+                                    {!needsRecount ? (
+                                        <div className="card">
+                                            <input type="number" className="count-input-lg" value={countQty} onChange={e => setCountQty(e.target.value)} onKeyPress={e => e.key === 'Enter' && submitCount()} autoFocus />
+                                            <button onClick={submitCount} disabled={!countQty} className="btn btn-gold btn-block" style={{marginTop:'14px', fontSize:'16px', padding:'14px'}}>Submit Count</button>
+                                        </div>
+                                    ) : (
+                                        <div className="card">
+                                            <div className="alert alert-error">Counted <strong>{countQty}</strong>, system shows <strong>{currentItem.onHand}</strong>. Please recount.</div>
+                                            <input type="number" className="count-input-lg recount" value={recountQty} onChange={e => setRecountQty(e.target.value)} onKeyPress={e => e.key === 'Enter' && submitCount()} autoFocus />
+                                            <button onClick={submitCount} disabled={!recountQty} className="btn btn-gold btn-block" style={{marginTop:'14px', fontSize:'16px', padding:'14px'}}>Submit Recount</button>
+                                        </div>
+                                    )}
+                                    <button onClick={() => { setCurrentItem(null); setScannedSKU(''); setCountQty(''); setRecountQty(''); setNeedsRecount(false); }} className="btn btn-ghost btn-block" style={{marginTop:'10px'}}>Cancel</button>
+                                </div>
+                            )}
+
+                            {/* Count log */}
+                            {countedItems.length > 0 && (
+                                <div style={{marginTop:'32px'}}>
+                                    <h3 style={{marginBottom:'14px'}}>Count Log ({countedItems.length} items)</h3>
+                                    <div className="table-wrap">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Found At</th><th>Expected</th><th>SKU</th>
+                                                    <th>Item</th><th>UoM</th><th>System</th>
+                                                    <th>Counted</th><th>Variance</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {resolvedCounted.map((it, i) => (
+                                                    <React.Fragment key={i}>
+                                                        <tr style={{background: it.variance !== 0 || it.misplaced ? '#fff0ed' : 'white'}}>
+                                                            <td style={{fontFamily:'var(--mono)', fontSize:'12px', fontWeight:700}}>{it.countedAt}</td>
+                                                            <td style={{fontFamily:'var(--mono)', fontSize:'12px', color: it.misplaced ? 'var(--red)' : 'var(--muted)'}}>{it.expectedLocation}</td>
+                                                            <td style={{fontFamily:'var(--mono)', fontSize:'12px'}}>{it.sku}</td>
+                                                            <td style={{fontSize:'13px'}}>{it.itemName}</td>
+                                                            <td>{it.uom}</td>
+                                                            <td style={{textAlign:'center'}}>{it.onHand}</td>
+                                                            <td style={{textAlign:'center', fontWeight:700, fontSize:'15px'}}>{it.counted}</td>
+                                                            <td style={{textAlign:'center', fontWeight:700, fontSize:'15px', color: it.variance === 0 ? 'var(--green)' : 'var(--red)'}}>{it.variance > 0 ? '+':''}{it.variance}</td>
+                                                        </tr>
+                                                        {it.parentSKU && (
+                                                            <tr style={{background:'var(--sky)'}}>
+                                                                <td colSpan="2" style={{paddingLeft:'28px', fontSize:'11px', color:'var(--muted)'}}>↳ parent</td>
+                                                                <td style={{fontFamily:'var(--mono)', fontSize:'11px', color:'var(--royal)'}}>{it.parentSKU}</td>
+                                                                <td style={{fontSize:'11px', color:'var(--muted)', fontStyle:'italic'}} colSpan="5">{it.parentName}</td>
+                                                            </tr>
+                                                        )}
+                                                    </React.Fragment>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    mountPage({
+        page: 'cycle-count',
+        title: "Cycle Count",
+        desc: "Scan-based physical inventory verification by section and rack",
+        render: (data) => <CycleCountPage inventory={data.inventory} />
+    });
+    </script>
+</body>
+</html>

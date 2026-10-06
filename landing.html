@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --royal: #003594; --gold: #FFB81C; --navy: #00205B; --sky: #DBEEFF;
+            --gothic: 'alternate-gothic-no-3-d', 'Arial Narrow', sans-serif;
+            --serif: 'Instrument Serif', Georgia, serif;
+            --sans: 'Roboto', Arial, sans-serif;
+        }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+        body {
+            font-family: var(--sans); color: #fff; overflow: hidden;
+            background: linear-gradient(155deg, var(--navy) 0%, #00296f 45%, var(--royal) 100%);
+        }
+
+        /* Background grid: thin lines that breathe, plus a slow gold sweep */
+        .grid, .grid::before, .grid::after { position: fixed; inset: 0; pointer-events: none; }
+        .grid {
+            background-image:
+                linear-gradient(rgba(219,238,255,.9) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(219,238,255,.9) 1px, transparent 1px);
+            background-size: 56px 56px;
+            opacity: .07;
+            animation: breathe 8s ease-in-out infinite;
+            -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 50%, #000 25%, transparent 100%);
+                    mask-image: radial-gradient(ellipse 80% 75% at 50% 50%, #000 25%, transparent 100%);
+        }
+        .grid::before {
+            content: ''; opacity: 1;
+            background-image:
+                linear-gradient(rgba(255,184,28,1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,184,28,1) 1px, transparent 1px);
+            background-size: 56px 56px;
+            -webkit-mask-image: radial-gradient(circle 260px at 50% 50%, #000 0%, transparent 100%);
+                    mask-image: radial-gradient(circle 260px at 50% 50%, #000 0%, transparent 100%);
+            -webkit-mask-size: 340% 340%; mask-size: 340% 340%;
+            -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+            animation: sweep 18s ease-in-out infinite alternate;
+        }
+        @keyframes breathe { 0%, 100% { opacity: .045; } 50% { opacity: .11; } }
+        @keyframes sweep {
+            0%   { -webkit-mask-position: 0% 10%;   mask-position: 0% 10%; }
+            50%  { -webkit-mask-position: 100% 70%; mask-position: 100% 70%; }
+            100% { -webkit-mask-position: 30% 100%; mask-position: 30% 100%; }
+        }
+
+        .stage { position: relative; z-index: 1; min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; text-align: center; }
+        .logo { width: min(380px, 80vw); height: auto; display: block; margin-bottom: 26px; animation: rise .7s cubic-bezier(.2,.7,.2,1) both; }
+        .blurb { max-width: 520px; font-size: 17px; line-height: 1.65; font-weight: 300; color: rgba(219,238,255,.92); margin-bottom: 34px; animation: rise .7s .08s cubic-bezier(.2,.7,.2,1) both; }
+        .gate { width: min(360px, 100%); animation: rise .7s .16s cubic-bezier(.2,.7,.2,1) both; }
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+        .gate label { display: block; text-align: left; font-family: var(--gothic); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 7px; }
+        .gate-row { display: flex; height: 50px; border-radius: 10px; overflow: hidden; border: 1.5px solid rgba(255,255,255,.3); background: rgba(255,255,255,.1); transition: border-color .15s, box-shadow .15s, background .15s; }
+        .gate-row:focus-within { border-color: var(--gold); background: rgba(255,255,255,.15); box-shadow: 0 0 0 3px rgba(255,184,28,.2); }
+        .gate-row input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: #fff; font-size: 16px; padding: 0 16px; font-family: var(--sans); }
+        .gate-row input::placeholder { color: rgba(255,255,255,.45); }
+        .btn-gold {
+            border: none; background: var(--gold); color: var(--navy); cursor: pointer; padding: 0 22px;
+            font-family: var(--gothic); font-size: 17px; letter-spacing: .12em; text-transform: uppercase; font-weight: 700;
+            transition: background .15s, transform .08s;
+        }
+        .btn-gold:hover { background: #ffe939; }
+        .btn-gold:active { transform: scale(.97); }
+        .btn-open { width: 100%; height: 52px; border-radius: 10px; font-size: 19px; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+        .err { height: 20px; margin-top: 8px; font-size: 13px; color: #ffb3a5; text-align: left; }
+        .shake { animation: shake .4s; }
+        @keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+
+        .foot { position: fixed; bottom: 18px; left: 0; right: 0; z-index: 1; display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 12px; color: rgba(219,238,255,.6); }
+        .foot img { width: 22px; height: 22px; object-fit: contain; opacity: .85; }
+
+        @media (max-height: 640px) { .foot { position: static; margin-top: 30px; } }
+        @media (prefers-reduced-motion: reduce) { .grid, .grid::before, .logo, .blurb, .gate { animation: none !important; } }
+    </style>
+</head>
+<body>
+    <div class="grid" aria-hidden="true"></div>
+
+    <main class="stage">
+        <img class="logo" src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom">
+        <p class="blurb">The Toolbox is the Stockroom's internal staff platform for inventory lookup, hazmat compliance paperwork, order processing, customer communications, and day-to-day reference guides.</p>
+
+        <div class="gate" id="gate-locked" hidden>
+            <form id="login-form" autocomplete="off">
+                <label for="pw">Staff password</label>
+                <div class="gate-row" id="gate-row">
+                    <input id="pw" type="password" placeholder="Enter password" autocomplete="current-password" autofocus>
+                    <button class="btn-gold" type="submit">Enter</button>
+                </div>
+                <div class="err" id="err" role="alert"></div>
+            </form>
+        </div>
+
+        <div class="gate" id="gate-open" hidden>
+            <a class="btn-gold btn-open" href="index.html">Open the Toolbox</a>
+        </div>
+    </main>
+
+    <div class="foot">
+        <img src="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png" alt="">
+        <span>University of Pittsburgh · Dietrich School of Arts &amp; Sciences</span>
+    </div>
+
+    <script>
+        (function () {
+            var AUTH_KEY = 'stockroom_auth', CORRECT = 'enzyme';
+            var authed = false;
+            try { authed = localStorage.getItem(AUTH_KEY) === '1'; } catch (e) {}
+
+            // Already signed in: show the landing page with a button instead of the password field.
+            // (No auto-redirect — this page may carry more content later.)
+            document.getElementById(authed ? 'gate-open' : 'gate-locked').hidden = false;
+            if (authed) return;
+
+            var form = document.getElementById('login-form');
+            var input = document.getElementById('pw');
+            var row = document.getElementById('gate-row');
+            var err = document.getElementById('err');
+
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                if (input.value.trim().toLowerCase() === CORRECT) {
+                    try { localStorage.setItem(AUTH_KEY, '1'); } catch (x) {}
+                    window.location.href = 'index.html';
+                } else {
+                    err.textContent = 'That password is not correct.';
+                    row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake');
+                    input.select();
+                }
+            });
+            input.addEventListener('input', function () { err.textContent = ''; });
+        })();
+    </script>
+</body>
+</html>

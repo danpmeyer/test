@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Label Maker — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+    /* ══════════════════════════════════════════════════════════════════════
+       LABEL GENERATOR — layout/rendering constants and helpers
+    ══════════════════════════════════════════════════════════════════════ */
+    const LAYOUT_5162 = {
+        name: '5162 / 8162 — 1⅓″ × 4″ (14-up)',
+        maxOffset: 13,
+        px: { PAGE_W:816, PAGE_H:1056, LABEL_W:384, LABEL_H:128, COLS:2, ROWS:7, MARGIN_L:15, MARGIN_T:80, COL_GAP:18, PAD_X:10, PAD_Y:7 },
+        pt: { PAGE_W:612, PAGE_H:792, LABEL_W:288, LABEL_H:96, COLS:2, ROWS:7, MARGIN_L:11.25, MARGIN_T:60, COL_GAP:13.5, PAD_X:8, PAD_Y:6 }
+    };
+    const LAYOUT_5160 = {
+        name: '5160 / 8160 — 1″ × 2⅝″ (30-up)',
+        maxOffset: 29,
+        px: { PAGE_W:816, PAGE_H:1056, LABEL_W:252, LABEL_H:96, COLS:3, ROWS:10, MARGIN_L:13, MARGIN_T:48, COL_GAP:12, PAD_X:7, PAD_Y:5 },
+        pt: { PAGE_W:612, PAGE_H:792, LABEL_W:189, LABEL_H:72, COLS:3, ROWS:10, MARGIN_L:9.75, MARGIN_T:36, COL_GAP:9, PAD_X:6, PAD_Y:4 }
+    };
+    const LAYOUTS = { '5162': LAYOUT_5162, '5160': LAYOUT_5160 };
+    const COL_IDX = { loc:2, itemNum:4, mfrNum:5, name:13, uom:14, altUnit:15, convFactor:16 };
+
+    function labelOriginPx(idx, PX) {
+        return { x: PX.MARGIN_L + (idx % PX.COLS)*(PX.LABEL_W+PX.COL_GAP), y: PX.MARGIN_T + Math.floor(idx/PX.COLS)*PX.LABEL_H };
+    }
+    function labelOriginPt(idx, PT) {
+        return { x: PT.MARGIN_L + (idx % PT.COLS)*(PT.LABEL_W+PT.COL_GAP), y: PT.MARGIN_T + Math.floor(idx/PT.COLS)*PT.LABEL_H };
+    }
+    function altDisplay(item) {
+        const parts = [item.convFactor, item.altUnit].filter(s => s && s !== '0');
+        return parts.length === 2 ? parts.join(' / ') : parts.join('');
+    }
+    function makeLabelItem(itemNum, name, mfrNum, loc, uom, altUnit, convFactor) {
+        return { itemNum, name, mfrNum, loc, uom, altUnit, convFactor };
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       LABEL MAKER PAGE
+    ══════════════════════════════════════════════════════════════════════ */
+    function LabelsPage({ inventory }) {
+        const [labelTab, setLabelTab] = useState('file');
+        const [fileData, setFileData] = useState([]);
+        const [manualQueue, setManualQueue] = useState([]);
+        const [rawRows, setRawRows] = useState([]);
+        const [rawFname, setRawFname] = useState('');
+        const [filterY, setFilterY] = useState(true);
+        const [fileName, setFileName] = useState('');
+        const [itemCount, setItemCount] = useState(0);
+        const [fileErr, setFileErr] = useState('');
+        const [manualErr, setManualErr] = useState('');
+        // SKU lookup tab
+        const [skuListInput, setSkuListInput] = useState('');
+        const [skuLookupData, setSkuLookupData] = useState([]);
+        const [skuLookupResults, setSkuLookupResults] = useState(null); // null = not yet run
+        const [labelSize, setLabelSize] = useState('5162');
+        const [startOffset, setStartOffset] = useState(0);
+        const [barcodeType, setBarcodeType] = useState('CODE128');
+        const [pdfBusy, setPdfBusy] = useState(false);
+        const [previewKey, setPreviewKey] = useState(0);
+        // Manual form
+        const [mItemNum, setMItemNum] = useState('');
+        const [mName, setMName] = useState('');
+        const [mMfrNum, setMMfrNum] = useState('');
+        const [mLoc, setMLoc] = useState('');
+        const [mUom, setMUom] = useState('');
+        const [mAltUnit, setMAltUnit] = useState('');
+        const [mConv, setMConv] = useState('');
+        const [mCopies, setMCopies] = useState(1);
+
+        const activeData = labelTab === 'file' ? fileData : labelTab === 'manual' ? manualQueue : skuLookupData;
+        const layout = LAYOUTS[labelSize];
+
+        // Load from inventory file when 'file' tab is active
+        const handleFileUpload = (file) => {
+            setFileErr('');
+            const ext = file.name.split('.').pop().toLowerCase();
+            const processRows = (rows) => { setRawRows(rows); setRawFname(file.name); applyFilter(rows, filterY, file.name); };
+            if (ext === 'csv') {
+                const reader = new FileReader();
+                reader.onload = e => { const lines = e.target.result.split(/\r?\n/); const rows = lines.map(l => l.split(',').map(c => c.replace(/^"|"$/g,'').trim())); processRows(rows); };
+                reader.readAsText(file);
+            } else if (['xlsx','xls'].includes(ext)) {
+                const reader = new FileReader();
+                reader.onload = e => {
+                    try {
+                        const wb = XLSX.read(e.target.result, { type:'array', raw:false });
+                        const ws = wb.Sheets[wb.SheetNames[0]];
+                        const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+                        processRows(rows);
+                    } catch(err) { setFileErr('Could not read file: ' + err.message); }
+                };
+                reader.readAsArrayBuffer(file);
+            } else { setFileErr('Please use .xlsx, .xls, or .csv.'); }
+        };
+
+        const applyFilter = (rows, fy, fname) => {
+            const items = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const val = String(row[COL_IDX.itemNum] ?? '').trim();
+                if (!val) continue;
+                if (fy && val.toUpperCase().startsWith('Y')) continue;
+                items.push(makeLabelItem(val, String(row[COL_IDX.name]||'').trim(), String(row[COL_IDX.mfrNum]||'').trim(), String(row[COL_IDX.loc]||'').trim(), String(row[COL_IDX.uom]||'').trim(), String(row[COL_IDX.altUnit]||'').trim(), String(row[COL_IDX.convFactor]||'').trim()));
+            }
+            if (!items.length) { setFileErr('No data rows found. Try toggling the Y-prefix filter.'); return; }
+            setFileData(items); setFileName(fname || rawFname); setItemCount(items.length); setFileErr('');
+        };
+
+        const toggleFilterY = () => {
+            const nf = !filterY; setFilterY(nf);
+            if (rawRows.length) applyFilter(rawRows, nf, rawFname);
+        };
+
+        const addManualItem = () => {
+            if (!mItemNum.trim()) { setManualErr('Item Number is required.'); return; }
+            setManualErr('');
+            const copies = Math.max(1, Math.min(50, mCopies || 1));
+            const item = makeLabelItem(mItemNum.trim(), mName.trim(), mMfrNum.trim(), mLoc.trim(), mUom.trim(), mAltUnit.trim(), mConv.trim());
+            setManualQueue(q => { const nq = [...q]; for (let c = 0; c < copies; c++) nq.push(item); return nq; });
+            setMItemNum(''); setMName(''); setMMfrNum(''); setMLoc(''); setMUom(''); setMAltUnit(''); setMConv(''); setMCopies(1);
+        };
+
+        const removeQueueGroup = (startIdx, count) => {
+            setManualQueue(q => { const nq = [...q]; nq.splice(startIdx, count); return nq; });
+        };
+
+        const getCollapsedQueue = () => {
+            const collapsed = []; let offset = 0;
+            for (const item of manualQueue) {
+                const last = collapsed[collapsed.length - 1];
+                if (last && last.item.itemNum === item.itemNum) { last.copies++; }
+                else { collapsed.push({ item, copies: 1, startIdx: offset }); }
+                offset++;
+            }
+            return collapsed;
+        };
+
+        // ── SKU Lookup tab ──────────────────────────────────────────────────
+        const runSkuLookup = () => {
+            if (!inventory.length) { return; }
+            const lines = skuListInput.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+            if (!lines.length) return;
+            const found = [];
+            const notFound = [];
+            lines.forEach(raw => {
+                const ns = normalizeSKU(raw);
+                const item = inventory.find(i =>
+                    normalizeSKU(i.internalSKU) === ns ||
+                    i.manufacturerSKUs.some(m => normalizeSKU(m) === ns)
+                );
+                if (item) {
+                    found.push(makeLabelItem(
+                        item.internalSKU, item.itemName,
+                        item.manufacturerSKUs[0] || '',
+                        item.location, item.uom,
+                        item.altUom, item.convFactor
+                    ));
+                } else {
+                    notFound.push(raw);
+                }
+            });
+            setSkuLookupData(found);
+            setSkuLookupResults({ found: found.length, notFound });
+        };
+
+        const clearSkuLookup = () => {
+            setSkuListInput('');
+            setSkuLookupData([]);
+            setSkuLookupResults(null);
+        };
+
+        const generatePDF = async () => {
+            if (!activeData.length) return;
+            setPdfBusy(true);
+            await new Promise(r => setTimeout(r, 30));
+            try {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ unit:'pt', format:'letter', orientation:'portrait' });
+                const PT = layout.pt;
+                const items = activeData;
+                const offset = Math.max(0, Math.min(PT.COLS * PT.ROWS - 1, startOffset));
+                const PAD = PT.PAD_X, PADY = PT.PAD_Y;
+                const INNER_W = PT.LABEL_W - 2*PAD;
+                const COL_W = INNER_W/2 - 3;
+                const scale = PT.LABEL_H / 96;
+                const F_NUM = Math.max(7, Math.round(14*scale)), F_NAME = Math.max(5, Math.round(8.5*scale));
+                const F_FIELD = Math.max(5, Math.round(10*scale)), BC_H = Math.max(12, Math.round(24*scale));
+                const LINE = Math.max(6, Math.round(12*scale));
+                const slotsPerPage = PT.COLS * PT.ROWS;
+                let pos = offset;
+                const fit = (text, maxW) => { let t = String(text??''); if (doc.getTextWidth(t) <= maxW) return t; while (t.length > 1 && doc.getTextWidth(t+'…') > maxW) t = t.slice(0,-1); return t+'…'; };
+                const wrap2 = (text, maxW) => { const words = String(text??'').split(' '); const lines = []; let cur = ''; for (const w of words) { const test = cur ? cur+' '+w : w; if (doc.getTextWidth(test) > maxW) { if (cur) lines.push(cur); cur = w; if (lines.length >= 1) break; } else cur = test; } if (cur) lines.push(cur); return lines.slice(0,2); };
+                for (let i = 0; i < items.length; i++) {
+                    if (pos >= slotsPerPage) { doc.addPage(); pos = 0; }
+                    const item = items[i];
+                    const { x, y } = labelOriginPt(pos, PT);
+                    let cursor = y + PADY;
+                    try { const bcCanvas = document.createElement('canvas'); JsBarcode(bcCanvas, item.itemNum||'00000', { format:barcodeType, width:2, height:80, displayValue:false, margin:0, background:'#ffffff', lineColor:'#000000' }); doc.addImage(bcCanvas.toDataURL('image/png'), 'PNG', x+PAD, cursor, INNER_W, BC_H); } catch(e) {}
+                    cursor += BC_H + Math.round(3*scale);
+                    doc.setFont('helvetica','bold'); doc.setFontSize(F_NUM); doc.setTextColor(0,0,0);
+                    cursor += F_NUM; doc.text(item.itemNum||'', x+PT.LABEL_W/2, cursor, { align:'center' });
+                    doc.setFont('helvetica','normal'); doc.setFontSize(F_NAME); doc.setTextColor(20,20,20);
+                    const nameLines = wrap2(item.name, INNER_W);
+                    cursor += Math.round(2*scale);
+                    for (const line of nameLines) { cursor += F_NAME+1; doc.text(line, x+PT.LABEL_W/2, cursor, { align:'center' }); }
+                    cursor += Math.round(4*scale);
+                    const LEFT_X = x+PAD, RIGHT_X = x+PT.LABEL_W-PAD;
+                    let LEFT_Y = cursor, RIGHT_Y = cursor;
+                    doc.setFontSize(F_FIELD); doc.setFont('helvetica','bold'); doc.setTextColor(0,0,0);
+                    const MFR_LBL = 'Mfr# '; const mfrLW = doc.getTextWidth(MFR_LBL);
+                    LEFT_Y += F_FIELD; doc.text(MFR_LBL, LEFT_X, LEFT_Y); doc.setFont('helvetica','normal'); doc.setTextColor(40,40,40); doc.text(fit(item.mfrNum, COL_W-mfrLW), LEFT_X+mfrLW, LEFT_Y);
+                    LEFT_Y += LINE; doc.setFont('helvetica','bold'); doc.setTextColor(0,0,0);
+                    const UOM_LBL = 'UOM '; const uomLW = doc.getTextWidth(UOM_LBL);
+                    doc.text(UOM_LBL, LEFT_X, LEFT_Y); doc.setFont('helvetica','normal'); doc.setTextColor(40,40,40); doc.text(fit(item.uom, COL_W-uomLW), LEFT_X+uomLW, LEFT_Y);
+                    RIGHT_Y += F_FIELD; doc.setFont('helvetica','bold'); doc.setTextColor(0,0,0); doc.text(fit(item.loc, COL_W), RIGHT_X, RIGHT_Y, { align:'right' });
+                    const altStr = altDisplay(item);
+                    if (altStr) { RIGHT_Y += LINE; doc.setFont('helvetica','normal'); doc.setTextColor(60,60,60); doc.text(fit(altStr, COL_W), RIGHT_X, RIGHT_Y, { align:'right' }); }
+                    pos++;
+                }
+                doc.save('shelf_labels.pdf');
+            } catch(e) { alert('PDF generation error: ' + e.message); }
+            setPdfBusy(false);
+        };
+
+        // Render preview DOM into a ref-attached div
+        const previewRef = useRef(null);
+        useEffect(() => {
+            if (!previewRef.current) return;
+            const area = previewRef.current;
+            // Clear
+            while (area.firstChild) area.removeChild(area.firstChild);
+            if (!activeData.length) return;
+            const PX = layout.px;
+            const items = activeData;
+            const offset = Math.max(0, Math.min(PX.COLS*PX.ROWS-1, startOffset));
+            const slotsPerPage = PX.COLS * PX.ROWS;
+            const numPages = Math.ceil((offset + items.length) / slotsPerPage);
+            const scale = Math.min(1, PX.LABEL_H / 128);
+            for (let p = 0; p < numPages; p++) {
+                const hdr = document.createElement('div');
+                hdr.className = 'label-pg-header';
+                hdr.innerHTML = `<span>Page ${p+1} of ${numPages}</span><span style="background:rgba(255,255,255,0.1); padding:3px 10px; border-radius:12px; font-size:11px;">${PX.COLS} × ${PX.ROWS} · ${slotsPerPage} labels/sheet</span>`;
+                area.appendChild(hdr);
+                const sheet = document.createElement('div');
+                sheet.className = 'label-sheet';
+                for (let slot = 0; slot < slotsPerPage; slot++) {
+                    const globalSlot = p * slotsPerPage + slot;
+                    const itemIdx = globalSlot - offset;
+                    const { x, y } = labelOriginPx(slot, PX);
+                    if (itemIdx >= 0 && itemIdx < items.length) {
+                        const item = items[itemIdx];
+                        const cell = document.createElement('div');
+                        cell.className = 'lc';
+                        cell.style.cssText = `left:${x}px;top:${y}px;width:${PX.LABEL_W}px;height:${PX.LABEL_H}px;`;
+                        const inner = document.createElement('div');
+                        inner.className = 'lc-inner';
+                        inner.style.padding = `${Math.round(PX.PAD_Y)}px ${Math.round(PX.PAD_X)}px ${Math.round(PX.PAD_Y*0.7)}px`;
+                        // Barcode
+                        const bcH = Math.round(26*scale);
+                        const bcWrap = document.createElement('div'); bcWrap.className = 'lc-bc';
+                        try {
+                            const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+                            JsBarcode(svg, item.itemNum||'00000', { format:barcodeType, width:1.4, height:30, displayValue:false, margin:0, background:'#ffffff', lineColor:'#000000' });
+                            svg.removeAttribute('width'); svg.removeAttribute('height'); svg.setAttribute('preserveAspectRatio','none');
+                            svg.style.width='100%'; svg.style.height=bcH+'px';
+                            bcWrap.appendChild(svg);
+                        } catch(e) { bcWrap.textContent = item.itemNum; }
+                        inner.appendChild(bcWrap);
+                        const num = document.createElement('div'); num.className = 'lc-num'; num.style.fontSize = Math.round(13*scale)+'px'; num.textContent = item.itemNum; inner.appendChild(num);
+                        const name = document.createElement('div'); name.className = 'lc-name'; name.style.fontSize = Math.round(8*scale)+'px'; name.textContent = item.name; inner.appendChild(name);
+                        const bottom = document.createElement('div'); bottom.className = 'lc-bottom'; bottom.style.marginTop = Math.round(3*scale)+'px';
+                        const left = document.createElement('div'); left.className = 'lc-left'; const fs = Math.round(9.5*scale)+'px';
+                        const mfr = document.createElement('div'); mfr.className = 'lc-field'; mfr.style.fontSize = fs; mfr.innerHTML = `<b>Mfr#</b> ${escHtml(item.mfrNum)}`; left.appendChild(mfr);
+                        const uom = document.createElement('div'); uom.className = 'lc-field'; uom.style.fontSize = fs; uom.innerHTML = `<b>UOM</b> ${escHtml(item.uom)}`; left.appendChild(uom);
+                        const right = document.createElement('div'); right.className = 'lc-right';
+                        const loc = document.createElement('div'); loc.className = 'lc-loc'; loc.style.fontSize = fs; loc.textContent = item.loc; right.appendChild(loc);
+                        const altStr = altDisplay(item);
+                        if (altStr) { const altEl = document.createElement('div'); altEl.className = 'lc-field'; altEl.style.fontSize = fs; altEl.textContent = altStr; right.appendChild(altEl); }
+                        bottom.appendChild(left); bottom.appendChild(right); inner.appendChild(bottom); cell.appendChild(inner); sheet.appendChild(cell);
+                    } else {
+                        const empty = document.createElement('div'); empty.className = 'lc lc-empty';
+                        empty.style.cssText = `left:${x}px;top:${y}px;width:${PX.LABEL_W}px;height:${PX.LABEL_H}px;`;
+                        sheet.appendChild(empty);
+                    }
+                }
+                area.appendChild(sheet);
+            }
+        }, [activeData, labelSize, startOffset, barcodeType, previewKey]);
+
+        const maxOffset = layout.px.COLS * layout.px.ROWS - 1;
+
+        return (
+            <div>
+                <div className="container page-content">
+                    <div className="label-app">
+                        {/* Sidebar */}
+                        <div className="label-sidebar">
+                            {/* Data source */}
+                            <div className="card card-sm">
+                                <h3>1 · Data Source</h3>
+                                <div className="label-source-tabs">
+                                    <button className={`lst-tab ${labelTab === 'file' ? 'active' : ''}`} onClick={() => setLabelTab('file')}>📂 File</button>
+                                    <button className={`lst-tab ${labelTab === 'lookup' ? 'active' : ''}`} onClick={() => setLabelTab('lookup')}>🔍 SKU List</button>
+                                    <button className={`lst-tab ${labelTab === 'manual' ? 'active' : ''}`} onClick={() => setLabelTab('manual')}>✏️ Manual</button>
+                                </div>
+
+                                {labelTab === 'file' && (
+                                    <div>
+                                        <div className="drop-zone" id="labelDropZone"
+                                            onDragOver={e => { e.preventDefault(); e.currentTarget.classList.add('over'); }}
+                                            onDragLeave={e => e.currentTarget.classList.remove('over')}
+                                            onDrop={e => { e.preventDefault(); e.currentTarget.classList.remove('over'); if (e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]); }}
+                                        >
+                                            <input type="file" accept=".xlsx,.xls,.csv" onChange={e => { if (e.target.files[0]) handleFileUpload(e.target.files[0]); }} />
+                                            <div className="drop-zone-icon">📊</div>
+                                            <p><strong>Drop Inventory Report</strong><br/>or click to browse<br/><span style={{fontSize:'11px'}}>.xlsx · .xls · .csv</span></p>
+                                        </div>
+                                        {fileName && !fileErr && (
+                                            <div className="file-pill show">
+                                                <span>✅</span>
+                                                <span className="fp-name">{fileName}</span>
+                                                <span style={{color:'var(--muted)', fontSize:'11px', whiteSpace:'nowrap'}}>{itemCount} items</span>
+                                            </div>
+                                        )}
+                                        {fileErr && <div className="label-err show">{fileErr}</div>}
+                                        <div className="col-map">
+                                            <span>C</span> Location · <span>E</span> Item #<br/>
+                                            <span>F</span> Mfr # · <span>N</span> Item Name<br/>
+                                            <span>O</span> UOM · <span>P</span> Alt Unit · <span>Q</span> Conv.
+                                        </div>
+                                        <div className="toggle-row" onClick={toggleFilterY} role="button" tabIndex={0} onKeyDown={e => e.key === " " || e.key === "Enter" ? toggleFilterY() : null}>
+                                            <div className="toggle-label-text">
+                                                Filter Y-prefix items
+                                                <small>Excludes items whose Item # starts with "Y"</small>
+                                            </div>
+                                            <div className="toggle-switch">
+                                                <input type="checkbox" checked={filterY} onChange={toggleFilterY} onClick={e => e.stopPropagation()} />
+                                                <div className="toggle-track"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {labelTab === 'lookup' && (
+                                    <div>
+                                        <p style={{fontSize:'12px', color:'var(--muted)', marginBottom:'10px', lineHeight:'1.5'}}>
+                                            Enter item numbers one per line (or comma-separated). Each will be looked up in the loaded inventory database.
+                                        </p>
+                                        <textarea
+                                            className="form-textarea"
+                                            rows={8}
+                                            value={skuListInput}
+                                            onChange={e => { setSkuListInput(e.target.value); setSkuLookupResults(null); }}
+                                            placeholder={'CHM-0001\nCHM-0042\nBIO-0117'}
+                                            style={{fontSize:'13px', width:'100%', resize:'vertical'}}
+                                        />
+                                        <div style={{display:'flex', gap:'8px', marginTop:'8px'}}>
+                                            <button
+                                                onClick={runSkuLookup}
+                                                disabled={!skuListInput.trim() || !inventory.length}
+                                                className="btn btn-primary btn-block"
+                                                style={{fontSize:'12px', flex:1}}
+                                            >
+                                                {inventory.length ? 'Look Up Items' : 'Database loading…'}
+                                            </button>
+                                            {skuLookupData.length > 0 && (
+                                                <button onClick={clearSkuLookup} className="btn btn-ghost" style={{fontSize:'12px', padding:'10px 12px'}}>Clear</button>
+                                            )}
+                                        </div>
+
+                                        {skuLookupResults && (
+                                            <div style={{marginTop:'10px'}}>
+                                                {skuLookupResults.found > 0 && (
+                                                    <div className="alert alert-success" style={{padding:'8px 12px', fontSize:'12px', marginBottom:'6px'}}>
+                                                        ✓ {skuLookupResults.found} item{skuLookupResults.found !== 1 ? 's' : ''} found — labels ready to preview
+                                                    </div>
+                                                )}
+                                                {skuLookupResults.notFound.length > 0 && (
+                                                    <div className="label-err show">
+                                                        <strong>Not found ({skuLookupResults.notFound.length}):</strong>
+                                                        <div style={{marginTop:'4px', fontFamily:'var(--mono)', fontSize:'11px', lineHeight:'1.8'}}>
+                                                            {skuLookupResults.notFound.map((s, i) => <div key={i}>{s}</div>)}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {skuLookupData.length > 0 && (
+                                            <div style={{marginTop:'12px'}}>
+                                                <div style={{fontSize:'11px', fontWeight:700, color:'var(--muted)', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:'6px'}}>Matched ({skuLookupData.length})</div>
+                                                {skuLookupData.map((item, i) => (
+                                                    <div key={i} className="queue-item-row">
+                                                        <span className="qi-num">{item.itemNum}</span>
+                                                        <span className="qi-name-s">{item.name || '—'}</span>
+                                                        <span className="qi-copies" style={{color:'var(--muted)', fontSize:'10px'}}>{item.loc}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {labelTab === 'manual' && (
+                                    <div>
+                                        <div style={{display:'flex', flexDirection:'column', gap:'8px'}}>
+                                            <div>
+                                                <label className="form-label">Item Number *</label>
+                                                <input type="text" className="form-input" value={mItemNum} onChange={e => setMItemNum(e.target.value)} onKeyDown={e => e.key === 'Enter' && addManualItem()} placeholder="CHM-0042" style={{fontSize:'13px', padding:'8px 10px'}} />
+                                            </div>
+                                            <div>
+                                                <label className="form-label">Mfr #</label>
+                                                <input type="text" className="form-input" value={mMfrNum} onChange={e => setMMfrNum(e.target.value)} placeholder="HCL-37-500ML" style={{fontSize:'13px', padding:'8px 10px'}} />
+                                            </div>
+                                            <div>
+                                                <label className="form-label">Item Name</label>
+                                                <input type="text" className="form-input" value={mName} onChange={e => setMName(e.target.value)} style={{fontSize:'13px', padding:'8px 10px'}} />
+                                            </div>
+                                            <div>
+                                                <label className="form-label">Location</label>
+                                                <input type="text" className="form-input" value={mLoc} onChange={e => setMLoc(e.target.value)} placeholder="A-1-3" style={{fontSize:'13px', padding:'8px 10px'}} />
+                                            </div>
+                                            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px'}}>
+                                                <div>
+                                                    <label className="form-label">UOM</label>
+                                                    <input type="text" className="form-input" value={mUom} onChange={e => setMUom(e.target.value)} style={{fontSize:'13px', padding:'8px 10px'}} />
+                                                </div>
+                                                <div>
+                                                    <label className="form-label">Copies</label>
+                                                    <input type="number" className="form-input" value={mCopies} onChange={e => setMCopies(parseInt(e.target.value)||1)} min="1" max="50" style={{fontSize:'13px', padding:'8px 10px'}} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {manualErr && <div className="label-err show" style={{marginTop:'8px'}}>{manualErr}</div>}
+                                        <button onClick={addManualItem} className="btn btn-outline btn-block" style={{marginTop:'10px', fontSize:'12px'}}>+ Add to Queue</button>
+
+                                        {manualQueue.length > 0 && (
+                                            <div style={{marginTop:'14px'}}>
+                                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
+                                                    <span style={{fontSize:'11px', fontWeight:700, color:'var(--muted)', letterSpacing:'0.08em', textTransform:'uppercase'}}>Queue ({manualQueue.length})</span>
+                                                    <button onClick={() => setManualQueue([])} style={{background:'none', border:'none', fontSize:'11px', color:'var(--red)', cursor:'pointer', fontFamily:'var(--sans)'}}>Clear all</button>
+                                                </div>
+                                                {getCollapsedQueue().map((g, i) => (
+                                                    <div key={i} className="queue-item-row">
+                                                        <span className="qi-num">{g.item.itemNum}</span>
+                                                        <span className="qi-name-s">{g.item.name || '—'}</span>
+                                                        {g.copies > 1 && <span className="qi-copies">×{g.copies}</span>}
+                                                        <button className="qi-del" onClick={() => removeQueueGroup(g.startIdx, g.copies)}>×</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Options */}
+                            <div className="card card-sm">
+                                <h3>2 · Options</h3>
+                                <div className="form-group">
+                                    <label className="form-label">Label Size</label>
+                                    <select className="form-select" value={labelSize} onChange={e => { setLabelSize(e.target.value); setStartOffset(0); }} style={{fontSize:'13px', padding:'8px 10px'}}>
+                                        <option value="5162">5162 — 1⅓″ × 4″ (14-up, 2×7)</option>
+                                        <option value="5160">5160 — 1″ × 2⅝″ (30-up, 3×10)</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Skip Positions (partial sheet)</label>
+                                    <input type="number" className="form-input" value={startOffset} onChange={e => setStartOffset(Math.max(0, Math.min(maxOffset, parseInt(e.target.value)||0)))} min="0" max={maxOffset} style={{fontSize:'13px', padding:'8px 10px'}} />
+                                    <div style={{fontSize:'11px', color:'var(--muted)', marginTop:'4px'}}>0 = top-left · {maxOffset} = last position</div>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Barcode Format</label>
+                                    <select className="form-select" value={barcodeType} onChange={e => setBarcodeType(e.target.value)} style={{fontSize:'13px', padding:'8px 10px'}}>
+                                        <option value="CODE128">Code 128 (recommended)</option>
+                                        <option value="CODE39">Code 39</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            {/* Output */}
+                            <div className="card card-sm">
+                                <h3>3 · Output</h3>
+                                <button className="btn btn-gold btn-block" disabled={!activeData.length || pdfBusy} onClick={generatePDF} style={{marginBottom:'8px'}}>
+                                    {pdfBusy ? <><span className="spinner" style={{display:'inline-block'}}></span> Generating…</> : '⬇ Download PDF'}
+                                </button>
+                                <button className="btn btn-outline btn-block" disabled={!activeData.length} onClick={() => setPreviewKey(k => k+1)} style={{fontSize:'12px'}}>
+                                    👁 Refresh Preview
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Preview */}
+                        <div>
+                            <div className="label-preview-area">
+                                {activeData.length === 0 && (
+                                    <div className="label-empty-state">
+                                        <div className="ei">🏷</div>
+                                        <p>Load a file or add items manually to preview labels here.</p>
+                                    </div>
+                                )}
+                                <div ref={previewRef} style={{display:'flex', flexDirection:'column', alignItems:'center', width:'100%'}}></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    mountPage({
+        page: 'labels',
+        title: "Label Maker",
+        desc: "Generate Avery 5162 or 5160 barcode shelf labels",
+        render: (data) => <LabelsPage inventory={data.inventory} />
+    });
+    </script>
+</body>
+</html>

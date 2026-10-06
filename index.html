@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+       DASHBOARD — search, recent / pinned tools, status, useful links
+    ══════════════════════════════════════════════════════════════════════ */
+    function Dashboard({ data }) {
+        const { inventory, dbStatus, lastModified } = data;
+        const [q, setQ] = useState('');
+        const [pinned, setPinned] = useState(() => readList(PINNED_KEY));
+        const recent = readList(RECENT_KEY);
+
+        const submit = (e) => {
+            e.preventDefault();
+            if (!q.trim()) return;
+            window.location.href = 'search.html?q=' + encodeURIComponent(q.trim());
+        };
+        const pin = (e, id) => { e.preventDefault(); e.stopPropagation(); setPinned(togglePinnedTool(id)); };
+
+        // Row = every pinned tool, then the most recent (up to 3) that aren't pinned
+        const byId = id => ALL_TOOLS.find(t => t.id === id);
+        const rowIds = [
+            ...pinned.filter(id => byId(id)),
+            ...recent.filter(id => byId(id) && !pinned.includes(id)).slice(0, 3),
+        ];
+
+        return (
+            <div className="dash">
+                <section className="dash-hero" aria-label="Catalog search">
+                    <h1>Search the catalog</h1>
+                    <p>Find an item by SKU, manufacturer number, name, vendor, or bin location.</p>
+                    <form className="dash-search" onSubmit={submit} role="search">
+                        <Icon name="search" size={22} />
+                        <input type="search" autoFocus autoComplete="off" value={q} onChange={e => setQ(e.target.value)}
+                               placeholder="Start typing a SKU or item name" aria-label="Catalog search" />
+                        <button type="submit">Search</button>
+                    </form>
+                    <div className="dash-hint">Press Ctrl+K (⌘K on Mac) to search tools, contacts, and items from any page.</div>
+                </section>
+
+                <section className="dash-row" aria-label="Recent and pinned tools">
+                    <div className="dash-row-head">
+                        <h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Recent and pinned</h2>
+                        <span>Pin a tool to keep it here</span>
+                    </div>
+                    {rowIds.length === 0 ? (
+                        <div className="dash-empty">Tools you open will appear here. Use the pin on a tool to keep it in this row.</div>
+                    ) : (
+                        <div className="chip-row">
+                            {rowIds.map(id => { const t = byId(id); const on = pinned.includes(id); return (
+                                <a key={id} className="tool-chip" href={t.href} {...(t.newTab ? { target:'_blank', rel:'noopener noreferrer' } : {})}>
+                                    <span className="chip-ico"><Icon name={t.icon} size={19} /></span>
+                                    <span style={{minWidth:0}}>
+                                        <span className="chip-name" style={{display:'block'}}>{t.name}</span>
+                                        <span className="chip-sub">{on ? 'Pinned' : 'Recently opened'}</span>
+                                    </span>
+                                    <button className={`pin-btn ${on ? 'on' : ''}`} onClick={e => pin(e, id)}
+                                            aria-label={on ? `Unpin ${t.name}` : `Pin ${t.name}`} title={on ? 'Unpin' : 'Pin to this row'}>
+                                        <Icon name="pin" size={15} />
+                                    </button>
+                                </a>
+                            ); })}
+                        </div>
+                    )}
+                </section>
+
+                <section className="dash-row" aria-label="Database status">
+                    <div className="dash-row-head"><h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Database</h2></div>
+                    <div className="status-panel">
+                        <div className="status-cell">
+                            <div className="k">Inventory items</div>
+                            <div className="v">{dbStatus === 'loading' ? <span className="skeleton" style={{width:80, height:20}} /> : dbStatus === 'error' ? '—' : inventory.length.toLocaleString()}</div>
+                        </div>
+                        <div className="status-cell">
+                            <div className="k">Last updated</div>
+                            <div className="v sm">{dbStatus === 'loading' ? <span className="skeleton" style={{width:140, height:16}} /> : lastModified ? formatStamp(lastModified) : 'Unknown'}</div>
+                        </div>
+                        <div className="status-cell">
+                            <div className="k">Status</div>
+                            {dbStatus === 'loading' && <div className="v sm"><span className="skeleton" style={{width:90, height:16}} /></div>}
+                            {dbStatus === 'ok' && <div className="v sm">Loaded</div>}
+                            {dbStatus === 'error' && <div className="v err">Could not read inventory-status-report.xlsx. Check that the file is in the site root.</div>}
+                        </div>
+                    </div>
+                </section>
+
+                <section className="dash-row" aria-label="Useful links">
+                    <div className="dash-row-head"><h2 className="section-label" style={{fontFamily:'var(--gothic)', fontSize:'14px', letterSpacing:'.14em', textTransform:'uppercase'}}>Useful links</h2></div>
+                    <div className="link-pills">
+                        {USEFUL_LINKS.map(l => (
+                            <a key={l.url} className="link-pill" href={l.url} target="_blank" rel="noopener noreferrer">
+                                {l.label} <Icon name="external" size={11} />
+                            </a>
+                        ))}
+                    </div>
+                </section>
+            </div>
+        );
+    }
+
+    mountPage({ page: 'index', title: null, desc: null, render: (data) => <Dashboard data={data} /> });
+
+    </script>
+</body>
+</html>

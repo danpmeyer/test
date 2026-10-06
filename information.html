@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Information — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+
+
+    /* ══════════════════════════════════════════════════════════════════════
+       INFORMATION — wiki-style guides.
+       Categories and article metadata live in INFO_CATEGORIES (shared.js).
+       Articles with custom UI register a renderer below, keyed by article id.
+    ══════════════════════════════════════════════════════════════════════ */
+
+    // ── Decon vendor panel (carried over from Dan's Terminal) ─────────────
+    // ── Decon vendor panel ───────────────────────────────────────────────
+    function DeconPanel({ inventory }) {
+        const deconItems = inventory.filter(item => item.vendor.toUpperCase() === 'DECON ETHANOL');
+        const [plcbNum, setPlcbNum] = useState('');
+        const [copied, setCopied]   = useState(false);
+
+        const externalNotes = `E.A. Permit number: TF-PA-52
+PLCB Release number: ${plcbNum || '[enter above]'}
+Pitt's EIN number: 25-0965591
+
+For all items to be delivered to the University of Pittsburgh, Department of Chemistry, the Chevron Science Center, 219 Parkman Ave. and Eberly Hall, University Dr. are unable to accept deliveries via semi-truck/tractor trailer. If a delivery is attempted, it will be rejected, and the University is not responsible for any redelivery fees. Please contact the DSS at 412-624-8551 or dsstock@pitt.edu to make other arrangements. Thank you for your cooperation.
+
+Deliver on a straight truck with a lift gate.`;
+
+        const handleCopy = async () => {
+            try {
+                await navigator.clipboard.writeText(externalNotes);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+            } catch(e) {
+                // fallback
+                const ta = document.createElement('textarea');
+                ta.value = externalNotes;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2500);
+            }
+        };
+
+        return (
+            <div className="vendor-panel">
+                <div className="vendor-panel-header">
+                    <h2>Decon Laboratories — Ethanol Ordering</h2>
+                </div>
+                <div className="vendor-panel-body">
+
+                    <div className="info-box">
+                        <strong>PLCB License Info:</strong> &nbsp; Permit: <span className="field-highlight">AE-48-00</span> &nbsp; LID Number: <span className="field-highlight">24988</span>
+                    </div>
+
+                    {/* Inventory table */}
+                    <h3 style={{fontFamily:'var(--gothic)', fontSize:'12px', letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--navy)', marginBottom:'12px', borderLeft:'3px solid var(--gold)', paddingLeft:'10px'}}>Current Inventory</h3>
+                    <div style={{overflowX:'auto', marginBottom:'24px'}}>
+                        <table className="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Internal SKU</th>
+                                    <th>Decon Cat. #</th>
+                                    <th>Description</th>
+                                    <th>UOM</th>
+                                    <th style={{textAlign:'right'}}>Our Price</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {deconItems.length === 0
+                                    ? <tr><td colSpan="5" style={{color:'var(--muted)', textAlign:'center', padding:'16px'}}>Loading inventory…</td></tr>
+                                    : deconItems.map((item, i) => (
+                                    <tr key={item.internalSKU + i}>
+                                        <td className="sku-cell">{item.internalSKU}</td>
+                                        <td className="sku-cell" style={{fontSize:'11px'}}>{item.manufacturerSKUs[0] || '—'}</td>
+                                        <td>{item.itemName}</td>
+                                        <td>{item.uom}</td>
+                                        <td style={{textAlign:'right', fontFamily:'var(--mono)', color:'var(--green)', fontWeight:600}}>{item.ourPrice ? `$${item.ourPrice}` : '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <hr className="divider" />
+
+                    {/* PLCB Steps */}
+                    <div className="steps-section">
+                        <h3>Step 1 — PLCB</h3>
+                        <ol className="steps-list">
+                            <li>Go to <a href="https://www.apps.lcb.pa.gov/webapp/Licensing/BulkPurchase/bulkpo.asp" target="_blank">apps.lcb.pa.gov — Bulk Purchase</a> and click <strong>Next</strong>.</li>
+                            <li>Enter Permit <span className="field-highlight">AE-48-00</span> and LID Number <span className="field-highlight">24988</span>, then click <strong>Next</strong>.</li>
+                            <li>Set Supplier Name to <span className="field-highlight">DECON LABORATORIES INC</span>. Enter the Quantity, Product Size, and Product Description, then click <strong>Next</strong>.</li>
+                            <li>Attn field: <span className="field-highlight">DSS / ULS Order Number</span>. Email: <span className="field-highlight">stockroom@pitt.edu</span>. Click <strong>Next</strong>.</li>
+                            <li><strong>Write down the Confirmation Number</strong> from the Replenishment screen — you will need this for the External Notes below.</li>
+                        </ol>
+                    </div>
+
+                    <hr className="divider" />
+
+                    {/* PantherExpress Steps */}
+                    <div className="steps-section">
+                        <h3>Step 2 — PantherExpress</h3>
+                        <ol className="steps-list">
+                            <li>Go to PantherExpress from <a href="https://my.pitt.edu" target="_blank">my.pitt.edu</a>.</li>
+                            <li>Navigate to <span className="field-highlight">Shop</span> → <span className="field-highlight">View Favorites</span> → <span className="field-highlight">Ethanol Replenishment</span> → <span className="field-highlight">Submit Request</span>.</li>
+                            <li>Search for the item using the Decon catalog number or description.</li>
+                            <li>Add to cart and proceed to checkout. Paste the External Notes (below) into the order notes / delivery instructions field. Attach the PLCB Release document, then submit the order.</li>
+                        </ol>
+                    </div>
+
+                    <hr className="divider" />
+
+                    {/* External Notes */}
+                    <h3 style={{fontFamily:'var(--gothic)', fontSize:'12px', letterSpacing:'0.1em', textTransform:'uppercase', color:'var(--navy)', marginBottom:'14px', borderLeft:'3px solid var(--gold)', paddingLeft:'10px'}}>External Notes</h3>
+                    <div className="notes-controls">
+                        <div>
+                            <label>PLCB Release / Confirmation Number</label>
+                            <input
+                                type="text"
+                                className="notes-input"
+                                placeholder="e.g. 123456"
+                                value={plcbNum}
+                                onChange={e => { setPlcbNum(e.target.value); setCopied(false); }}
+                            />
+                        </div>
+                        <button className={`btn ${copied ? 'btn-gold' : 'btn-primary'}`} onClick={handleCopy}>
+                            {copied ? '✓ Copied!' : '📋 Copy to Clipboard'}
+                        </button>
+                        {copied && <span className="copied-msg">Ready to paste into PantherExpress</span>}
+                    </div>
+                    <div className="notes-block">{externalNotes}</div>
+
+                </div>
+            </div>
+        );
+    }
+
+    const ARTICLE_RENDERERS = {
+        decon: (data) => <DeconPanel inventory={data.inventory} />,
+    };
+
+    function InformationPage({ data }) {
+        const params = new URLSearchParams(window.location.search);
+        const [cat, setCat] = useState(params.get('cat'));
+        const [articleId, setArticleId] = useState(params.get('article'));
+
+        const sync = (c, a) => {
+            setCat(c); setArticleId(a);
+            const p = new URLSearchParams();
+            if (c) p.set('cat', c);
+            if (a) p.set('article', a);
+            try { history.pushState(null, '', p.toString() ? '?' + p.toString() : window.location.pathname); } catch(e) {}
+        };
+        useEffect(() => {
+            const onPop = () => { const p = new URLSearchParams(window.location.search); setCat(p.get('cat')); setArticleId(p.get('article')); };
+            window.addEventListener('popstate', onPop);
+            return () => window.removeEventListener('popstate', onPop);
+        }, []);
+
+        const category = INFO_CATEGORIES.find(c => c.id === cat) || null;
+        const article = category && category.articles.find(a => a.id === articleId) || null;
+
+        return (
+            <div className="wiki">
+                {article ? (
+                    <>
+                        <button className="back-link" onClick={() => sync(category.id, null)}><Icon name="chevL" size={15} /> {category.name}</button>
+                        <div className="article-body">
+                            {ARTICLE_RENDERERS[article.id]
+                                ? ARTICLE_RENDERERS[article.id](data)
+                                : <><h2 style={{fontSize:'30px', marginBottom:'14px'}}>{article.title}</h2>{(article.body || [article.summary]).map((p, i) => <p key={i}>{p}</p>)}</>}
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div className="info-grid">
+                            {INFO_CATEGORIES.map(c => (
+                                <button key={c.id} className={`info-card ${cat === c.id ? 'active' : ''}`} aria-expanded={cat === c.id}
+                                        onClick={() => sync(cat === c.id ? null : c.id, null)}>
+                                    <span className="ic-head"><Icon name={c.icon} size={20} /><span className="ic-name">{c.name}</span></span>
+                                    <span className="ic-desc">{c.desc}</span>
+                                    <span className="ic-count">{c.articles.length === 0 ? 'No articles yet' : c.articles.length + (c.articles.length === 1 ? ' article' : ' articles')}</span>
+                                </button>
+                            ))}
+                        </div>
+                        {category && (category.articles.length === 0 ? (
+                            <div className="empty-cat">Nothing in {category.name} yet.</div>
+                        ) : (
+                            <div className="article-list">
+                                {category.articles.map(a => (
+                                    <button key={a.id} className="article-link" onClick={() => sync(category.id, a.id)}>
+                                        <Icon name="book" size={18} style={{color:'var(--royal)'}} />
+                                        <span style={{flex:1}}><span className="al-title" style={{display:'block'}}>{a.title}</span><span className="al-sum">{a.summary}</span></span>
+                                        <Icon name="chevR" size={16} style={{color:'var(--muted)'}} />
+                                    </button>
+                                ))}
+                            </div>
+                        ))}
+                        {!category && <div className="empty-cat">Choose a category to see its guides.</div>}
+                    </>
+                )}
+            </div>
+        );
+    }
+
+    mountPage({ page: 'information', title: 'Information', desc: 'Ordering guides, SOPs, vendor guides, and regulatory references', render: (data) => <InformationPage data={data} /> });
+
+    </script>
+</body>
+</html>

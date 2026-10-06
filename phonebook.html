@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phonebook — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+    /* ══════════════════════════════════════════════════════════════════════
+       PHONEBOOK PAGE
+    ══════════════════════════════════════════════════════════════════════ */
+
+    // Sheet color palette — one per source category
+    const SHEET_COLORS = {
+        'Chemistry':    { bg:'#dbeeff', border:'#003594', text:'#003594' },
+        'SRSS':         { bg:'#fff0e6', border:'#d4600a', text:'#8a3c00' },
+        'Biology':      { bg:'#e6f9f0', border:'#00875a', text:'#005c3b' },
+        'Pitt':         { bg:'#f0e6ff', border:'#6b21a8', text:'#4c1d80' },
+        'Pitt Offices': { bg:'#f5f0ff', border:'#8b5cf6', text:'#5b21b6' },
+        'Vendor':       { bg:'#fff7e6', border:'#b45309', text:'#7c3a00' },
+        'External':     { bg:'#fce7f3', border:'#9d174d', text:'#6d1035' },
+        'Shipping':     { bg:'#f0fffe', border:'#0891b2', text:'#055b70' },
+    };
+
+    function PhonebookPage() {
+        const [phonebookData, setPhonebookData]   = useState(null);  // null=loading
+        const [pbError, setPbError]               = useState('');
+        const [searchQuery, setSearchQuery]       = useState('');
+        const [searchResults, setSearchResults]   = useState(null);
+        const [activeFilter, setActiveFilter]     = useState('All');
+        const [expandedGroups, setExpandedGroups] = useState({});
+
+        // ── Load phonebook.xlsx on mount ─────────────────────────────────
+        useEffect(() => {
+            fetch('phonebook.xlsx')
+                .then(r => r.arrayBuffer())
+                .then(ab => {
+                    try {
+                        const wb = XLSX.read(ab, { type:'array', raw:false });
+                        const contacts = parsePhonebook(wb);
+                        setPhonebookData(contacts);
+                    } catch(e) { setPbError('Could not parse phonebook.xlsx: ' + e.message); }
+                })
+                .catch(() => setPbError('phonebook.xlsx not found. Place it in the same directory as this file.'));
+        }, []);
+
+        // ── Parser ────────────────────────────────────────────────────────
+        function parsePhonebook(wb) {
+            const sheetName = 'Master List';
+            if (!wb.SheetNames.includes(sheetName)) {
+                throw new Error(`Sheet "${sheetName}" not found. Sheets available: ${wb.SheetNames.join(', ')}`);
+            }
+            const ws  = wb.Sheets[sheetName];
+            const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+
+            const all = [];
+            rows.forEach(r => {
+                const last  = String(r['Last Name']                     || '').trim();
+                const first = String(r['First Name (Preferd Name)']     || r['First Name'] || '').trim();
+                if (!last && !first) return;
+
+                const group   = String(r['Group']        || '').trim();
+                const classif = String(r['Classif.']     || '').trim();
+                const dept    = String(r['Department']   || '').trim();
+
+                // Derive source tag from Group prefix / Classif
+                let source = 'Other';
+                if (group.startsWith('* SRSS'))       source = 'SRSS';
+                else if (group.startsWith('* Vendor') || classif === 'AcctMgr' || classif === 'Sales Rep') source = 'Vendor';
+                else if (group.startsWith('* Department') || group.startsWith('* Maintenance') || group.startsWith('*Visiting') || group === 'Professor') source = 'Pitt';
+                else if (dept === 'Chemistry' || dept === 'SRSS') source = 'Chemistry';
+                else if (dept === 'Biology')           source = 'Biology';
+                else                                   source = 'Pitt';
+
+                // Derive type
+                let type = 'person';
+
+                all.push({
+                    key:       makeKey(first, last, r['Email']),
+                    lastName:  last,
+                    firstName: first,
+                    pronouns:  String(r['Pronouns']      || '').trim(),
+                    group,
+                    classif,
+                    title:     String(r['Job Title']     || '').trim(),
+                    building:  String(r['Building']      || '').trim(),
+                    room:      String(r['Floor / Room']  || '').trim(),
+                    phone:     String(r['Phone 1']       || '').trim(),
+                    phone2:    String(r['Phone 2']       || '').trim(),
+                    cell:      String(r['Phone 3']       || '').trim(),
+                    email:     String(r['Email']         || '').trim(),
+                    company:   (source === 'Vendor') ? group.replace(/^\*Vendor\s*/i,'').trim() : '',
+                    department: dept,
+                    sources:   new Set([source]),
+                    type,
+                });
+            });
+
+            // Deduplicate by key
+            const map = new Map();
+            all.forEach(c => {
+                if (map.has(c.key)) {
+                    const ex = map.get(c.key);
+                    c.sources.forEach(s => ex.sources.add(s));
+                    ['phone','phone2','cell','email','building','room','title','classif','group','pronouns'].forEach(f => {
+                        if (!ex[f] && c[f]) ex[f] = c[f];
+                    });
+                } else {
+                    map.set(c.key, c);
+                }
+            });
+
+            return Array.from(map.values());
+        }
+
+        function makeKey(first, last, email) {
+            const e = String(email || '').trim().toLowerCase();
+            if (e) return 'email::' + e;
+            return 'name::' + (last + ',' + first).toLowerCase().replace(/\s+/g,'');
+        }
+
+        // ── Search ────────────────────────────────────────────────────────
+        const handleSearch = () => {
+            if (!phonebookData || !searchQuery.trim()) return;
+            const q = searchQuery.trim().toLowerCase();
+            const words = q.split(/\s+/);
+
+            const scored = phonebookData
+                .map(c => {
+                    const haystack = [
+                        c.lastName, c.firstName, c.title, c.email,
+                        c.phone, c.phone2, c.cell, c.building,
+                        c.group, c.company, c.department, c.classif,
+                    ].join(' ').toLowerCase();
+                    if (!words.every(w => haystack.includes(w))) return null;
+                    // Score: exact last name match scores highest
+                    let score = 0;
+                    if (c.lastName.toLowerCase() === q) score += 10;
+                    if (c.firstName.toLowerCase() === q) score += 8;
+                    if ((c.lastName+' '+c.firstName).toLowerCase().includes(q)) score += 6;
+                    if (c.group.toLowerCase() === q) score += 5;
+                    if (c.email.toLowerCase().startsWith(q.replace('@',''))) score += 4;
+                    score += (c.lastName.toLowerCase().includes(q) ? 2 : 0);
+                    return { ...c, score };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.score - a.score || a.lastName.localeCompare(b.lastName));
+
+            setSearchResults(scored);
+            setActiveFilter('All');
+            setExpandedGroups({});
+        };
+
+        // ── Group results by Chemistry group ─────────────────────────────
+        const groupResults = (results) => {
+            if (!results) return [];
+            const filtered = activeFilter === 'All'
+                ? results
+                : results.filter(c => c.sources.has(activeFilter));
+
+            // Collect Chemistry PI groups that have >1 member in results
+            const chemResults = filtered.filter(c => c.sources.has('Chemistry') && c.group);
+            const groupCounts = {};
+            chemResults.forEach(c => { groupCounts[c.group] = (groupCounts[c.group] || 0) + 1; });
+            const multiGroups = new Set(Object.keys(groupCounts).filter(g => groupCounts[g] > 1));
+
+            // Separate: grouped Chemistry entries vs ungrouped
+            const grouped = {};   // groupName → [members]
+            const ungrouped = [];
+
+            filtered.forEach(c => {
+                if (c.sources.has('Chemistry') && multiGroups.has(c.group)) {
+                    if (!grouped[c.group]) grouped[c.group] = [];
+                    grouped[c.group].push(c);
+                } else {
+                    ungrouped.push(c);
+                }
+            });
+
+            // Sort each group: PI first, then alphabetical
+            Object.keys(grouped).forEach(g => {
+                grouped[g].sort((a, b) => {
+                    const aIsPi = a.title.includes('Primary Investigator') || a.title.includes('Professor, ') ? 0 : 1;
+                    const bIsPi = b.title.includes('Primary Investigator') || b.title.includes('Professor, ') ? 0 : 1;
+                    if (aIsPi !== bIsPi) return aIsPi - bIsPi;
+                    return a.lastName.localeCompare(b.lastName);
+                });
+            });
+
+            return { grouped, ungrouped: ungrouped.sort((a,b) => a.lastName.localeCompare(b.lastName)) };
+        };
+
+        // ── Available filter chips ────────────────────────────────────────
+        const getFilterCounts = () => {
+            if (!searchResults) return {};
+            const counts = { All: searchResults.length };
+            searchResults.forEach(c => {
+                c.sources.forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+            });
+            return counts;
+        };
+
+        // ── Render helpers ────────────────────────────────────────────────
+        const SourceTag = ({ source }) => {
+            const col = SHEET_COLORS[source] || SHEET_COLORS['Pitt'];
+            return (
+                <span style={{
+                    fontSize:'9.5px', fontFamily:'var(--gothic)', fontWeight:700,
+                    letterSpacing:'0.08em', textTransform:'uppercase',
+                    padding:'2px 7px', borderRadius:'3px',
+                    background: col.bg, border:`1px solid ${col.border}`, color: col.text,
+                    whiteSpace:'nowrap',
+                }}>{source}</span>
+            );
+        };
+
+        const ContactCard = ({ contact, isGroupMember = false, inGroup = false }) => {
+            const primarySource = Array.from(contact.sources)[0];
+            const col = SHEET_COLORS[primarySource] || SHEET_COLORS['Pitt'];
+            const displayName = contact.type === 'office' || contact.type === 'company'
+                ? contact.lastName
+                : `${contact.firstName} ${contact.lastName}`.trim();
+            const showGroup = !inGroup && contact.group && contact.type === 'person'
+                && !['Vendor','External','Shipping'].includes(contact.classif);
+            const subtitle = [
+                contact.title,
+                contact.classif && contact.classif !== contact.title ? contact.classif : '',
+                contact.company || contact.department,
+            ].filter(Boolean).join(' · ');
+
+            const handleGroupClick = (e) => {
+                e.stopPropagation();
+                const groupName = contact.group;
+                setSearchQuery(groupName);
+                // Filter strictly to contacts whose group field exactly matches — no text search
+                const members = phonebookData
+                    .filter(c => c.group === groupName)
+                    .map(c => ({ ...c, score: c.title.includes('Primary Investigator') ? 10 : 0 }))
+                    .sort((a, b) => b.score - a.score || a.lastName.localeCompare(b.lastName));
+                setSearchResults(members);
+                setActiveFilter('All');
+                setExpandedGroups({});
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            const handleSourceClick = (e, source) => {
+                e.stopPropagation();
+                setActiveFilter(source);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            };
+
+            return (
+                <div style={{
+                    display:'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap:'0',
+                    padding: isGroupMember ? '10px 14px 10px 28px' : '12px 16px',
+                    background: isGroupMember ? '#fafbfd' : '#fff',
+                    borderLeft: `3px solid ${col.border}`,
+                    borderBottom: '1px solid var(--border)',
+                    alignItems: 'center',
+                }}>
+
+                    {/* Col 1 — Name, pronouns, then badges on one row */}
+                    <div style={{paddingRight:'16px', minWidth:0}}>
+                        <div style={{display:'flex', alignItems:'center', gap:'7px', flexWrap:'wrap', marginBottom:'5px'}}>
+                            <span style={{fontFamily:'var(--serif)', fontSize:'15px', fontWeight:400, color:'var(--navy)'}}>
+                                {displayName}
+                            </span>
+                            {contact.pronouns && (
+                                <span style={{fontSize:'11px', color:'var(--muted)', fontStyle:'italic'}}>{contact.pronouns}</span>
+                            )}
+                        </div>
+                        {/* Source tags + group badge on the same row */}
+                        <div style={{display:'flex', flexWrap:'wrap', gap:'4px', alignItems:'center'}}>
+                            {Array.from(contact.sources).map(s => {
+                                const sc = SHEET_COLORS[s] || SHEET_COLORS['Pitt'];
+                                return (
+                                    <button key={s} onClick={e => handleSourceClick(e, s)} title={`Filter by ${s}`} style={{
+                                        fontSize:'9.5px', fontFamily:'var(--gothic)', fontWeight:700,
+                                        letterSpacing:'0.08em', textTransform:'uppercase',
+                                        padding:'2px 7px', borderRadius:'3px',
+                                        background: sc.bg, border:`1px solid ${sc.border}`, color: sc.text,
+                                        cursor:'pointer', whiteSpace:'nowrap',
+                                        transition:'filter 0.15s',
+                                    }}
+                                    onMouseEnter={e => e.currentTarget.style.filter='brightness(0.9)'}
+                                    onMouseLeave={e => e.currentTarget.style.filter='none'}
+                                    >{s}</button>
+                                );
+                            })}
+                            {showGroup && (
+                                <button onClick={handleGroupClick} title={`Search ${contact.group} group`} style={{
+                                    display:'inline-flex', alignItems:'center', gap:'4px',
+                                    fontSize:'10px', fontFamily:'var(--gothic)', fontWeight:700,
+                                    letterSpacing:'0.07em', textTransform:'uppercase',
+                                    padding:'2px 8px', borderRadius:'4px',
+                                    background:'var(--sky)', border:'1.5px solid var(--royal)',
+                                    color:'var(--royal)', cursor:'pointer',
+                                    transition:'filter 0.15s',
+                                }}
+                                onMouseEnter={e => e.currentTarget.style.filter='brightness(0.9)'}
+                                onMouseLeave={e => e.currentTarget.style.filter='none'}
+                                >
+                                    <span style={{opacity:0.55}}>GRP</span>{contact.group}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Col 2 — Title / role / department */}
+                    <div style={{paddingRight:'16px', minWidth:0, borderLeft:'1px solid var(--border)', paddingLeft:'16px'}}>
+                        {subtitle && (
+                            <span style={{fontSize:'12.5px', color:'var(--muted)', lineHeight:'1.5', display:'block'}}>
+                                {subtitle}
+                            </span>
+                        )}
+                        {contact.building && (
+                            <span style={{fontSize:'12.5px', color:'var(--text)', display:'block', marginTop:'3px'}}>
+                                📍 {contact.building}{contact.room ? ` · ${contact.room}` : ''}
+                            </span>
+                        )}
+                    </div>
+
+                    {/* Col 3 — Phone(s), email */}
+                    <div style={{minWidth:0, borderLeft:'1px solid var(--border)', paddingLeft:'16px', display:'flex', flexDirection:'column', gap:'3px'}}>
+                        {contact.phone && contact.phone !== '-' && (
+                            <span style={{fontSize:'12.5px'}}>
+                                📞 <a href={`tel:${contact.phone}`} style={{color:'var(--royal)', textDecoration:'none'}}>{contact.phone}</a>
+                            </span>
+                        )}
+                        {contact.phone2 && contact.phone2 !== '-' && (
+                            <span style={{fontSize:'12.5px'}}>
+                                📞 <a href={`tel:${contact.phone2}`} style={{color:'var(--royal)', textDecoration:'none'}}>{contact.phone2}</a>
+                            </span>
+                        )}
+                        {contact.cell && contact.cell !== '-' && (
+                            <span style={{fontSize:'12.5px'}}>
+                                📱 <a href={`tel:${contact.cell}`} style={{color:'var(--royal)', textDecoration:'none'}}>{contact.cell}</a>
+                            </span>
+                        )}
+                        {contact.email && contact.email !== '-' && (
+                            contact.email.startsWith('http')
+                                ? <span style={{fontSize:'11.5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>🔗 <a href={contact.email} target="_blank" rel="noreferrer" style={{color:'var(--royal)', textDecoration:'none', fontFamily:'var(--mono)'}}>{contact.email}</a></span>
+                                : <span style={{fontSize:'11.5px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>✉️ <a href={`mailto:${contact.email}`} style={{color:'var(--royal)', textDecoration:'none', fontFamily:'var(--mono)'}}>{contact.email}</a></span>
+                        )}
+                    </div>
+                </div>
+            );
+        };
+
+        const GroupBlock = ({ groupName, members }) => {
+            const isOpen = expandedGroups[groupName] !== false; // default open
+            const pi = members.find(m => m.lastName === groupName || m.title.includes('Primary Investigator'));
+            const others = members.filter(m => m !== pi);
+            const col = SHEET_COLORS['Chemistry'];
+
+            return (
+                <div style={{border:`1.5px solid ${col.border}`, borderRadius:'8px', marginBottom:'12px', overflow:'hidden'}}>
+                    {/* Group header */}
+                    <button
+                        onClick={() => setExpandedGroups(eg => ({...eg, [groupName]: !isOpen}))}
+                        style={{
+                            width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+                            padding:'10px 16px', background: col.bg, border:'none', cursor:'pointer',
+                            borderBottom: isOpen ? `1px solid ${col.border}` : 'none',
+                        }}
+                    >
+                        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+                            <span style={{fontFamily:'var(--gothic)', fontSize:'12px', fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color: col.text}}>
+                                {groupName} Group
+                            </span>
+                            <span style={{fontSize:'11px', color: col.text, opacity:0.7}}>
+                                {members.length} {members.length === 1 ? 'member' : 'members'}
+                            </span>
+                        </div>
+                        <span style={{fontSize:'14px', color: col.text}}>{isOpen ? '▲' : '▼'}</span>
+                    </button>
+                    {isOpen && (
+                        <div>
+                            {pi && <ContactCard contact={pi} isGroupMember={false} inGroup={true} />}
+                            {others.map((m, i) => <ContactCard key={i} contact={m} isGroupMember={true} inGroup={true} />)}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // ── Filter chips ──────────────────────────────────────────────────
+        const filterCounts = getFilterCounts();
+        const filterOptions = ['All', 'Chemistry', 'Biology', 'SRSS', 'Pitt', 'Pitt Offices', 'Vendor', 'External', 'Shipping'];
+
+        // ── Build display output ──────────────────────────────────────────
+        const displayData = searchResults ? groupResults(searchResults) : null;
+
+        return (
+            <div>
+                <div className="container page-content">
+                    {/* Status */}
+                    {!phonebookData && !pbError && (
+                        <div className="alert alert-info">Loading phonebook database…</div>
+                    )}
+                    {pbError && (
+                        <div className="alert alert-error">{pbError}</div>
+                    )}
+
+                    {/* Search */}
+                    <div className="card">
+                        <h2>Search Contacts</h2>
+                        <div style={{display:'flex', gap:'0'}}>
+                            <input
+                                type="text"
+                                className="form-input"
+                                style={{borderRadius:'6px 0 0 6px', fontSize:'16px', padding:'13px 16px'}}
+                                placeholder="Name, email, group, building, title…"
+                                value={searchQuery}
+                                onChange={e => setSearchQuery(e.target.value)}
+                                onKeyPress={e => e.key === 'Enter' && handleSearch()}
+                                disabled={!phonebookData}
+                            />
+                            <button
+                                onClick={handleSearch}
+                                disabled={!phonebookData || !searchQuery.trim()}
+                                className="btn btn-primary"
+                                style={{borderRadius:'0 6px 6px 0', padding:'13px 24px', fontSize:'13px'}}
+                            >
+                                Search
+                            </button>
+                        </div>
+                        {phonebookData && (
+                            <div style={{fontSize:'12px', color:'var(--muted)', marginTop:'8px'}}>
+                                {phonebookData.length} contacts loaded · search by name, group, email, building, title, or company
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Results */}
+                    {searchResults && (
+                        <div>
+                            {/* Filter chips */}
+                            {searchResults.length > 0 && (
+                                <div style={{display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'16px'}}>
+                                    {filterOptions.filter(f => filterCounts[f]).map(f => (
+                                        <button key={f} onClick={() => setActiveFilter(f)} style={{
+                                            padding:'5px 13px', borderRadius:'20px', border:'1.5px solid',
+                                            fontSize:'11.5px', fontFamily:'var(--gothic)', fontWeight:700,
+                                            letterSpacing:'0.06em', textTransform:'uppercase', cursor:'pointer',
+                                            background: activeFilter === f ? 'var(--royal)' : '#fff',
+                                            color: activeFilter === f ? '#fff' : 'var(--navy)',
+                                            borderColor: activeFilter === f ? 'var(--royal)' : 'var(--border)',
+                                        }}>
+                                            {f} <span style={{opacity:0.7}}>({filterCounts[f]})</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
+                            {searchResults.length === 0 ? (
+                                <div className="card" style={{textAlign:'center', color:'var(--muted)', padding:'40px'}}>
+                                    No contacts found for <strong>"{searchQuery}"</strong>
+                                </div>
+                            ) : displayData && (
+                                <div>
+                                    <div style={{fontSize:'13px', color:'var(--muted)', marginBottom:'14px'}}>
+                                        {activeFilter === 'All' ? searchResults.length : (filterCounts[activeFilter] || 0)} result{searchResults.length !== 1 ? 's' : ''}
+                                        {activeFilter !== 'All' && ` in ${activeFilter}`}
+                                    </div>
+
+                                    {/* Grouped Chemistry results */}
+                                    {Object.keys(displayData.grouped).sort().map(g => (
+                                        <GroupBlock key={g} groupName={g} members={displayData.grouped[g]} />
+                                    ))}
+
+                                    {/* Ungrouped results */}
+                                    {displayData.ungrouped.length > 0 && (
+                                        <div style={{border:'1px solid var(--border)', borderRadius:'8px', overflow:'hidden'}}>
+                                            {displayData.ungrouped.map((c, i) => (
+                                                <ContactCard key={i} contact={c} />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    mountPage({
+        page: 'phonebook',
+        title: "Phonebook",
+        desc: "Search contacts across Chemistry, Biology, SRSS, Pitt offices, vendors, and more",
+        render: (data) => <PhonebookPage />
+    });
+    </script>
+</body>
+</html>

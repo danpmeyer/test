@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forms — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing.html'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+    function buildNewProductRequestHTML(req, blank) {
+        const v = (val) => blank ? '' : (val || '');
+        // Single-line field with one underline
+        const line = (label, value, hint) => `
+            <div class="field-row">
+                <div class="field-label">${label}${hint ? `<span class="hint"> — ${hint}</span>` : ''}</div>
+                <div class="field-value">${v(value)}<div class="field-line"></div></div>
+            </div>`;
+        // Multi-line field: shows value + one line when filled, three lines when blank
+        const multiline = (label, value, hint) => {
+            const lines = blank
+                ? '<div class="field-line"></div><div class="field-line" style="margin-top:16px"></div><div class="field-line" style="margin-top:16px"></div>'
+                : `<div class="field-value-text">${v(value)}</div><div class="field-line"></div>`;
+            return `
+            <div class="field-row">
+                <div class="field-label">${label}${hint ? `<span class="hint"> — ${hint}</span>` : ''}</div>
+                <div class="field-value">${lines}</div>
+            </div>`;
+        };
+        const yesno = (label, value, ifYesValue, hint) => `
+            <div class="field-row">
+                <div class="field-label">${label}${hint ? `<span class="hint"> — ${hint}</span>` : ''}</div>
+                <div class="field-value yesno">
+                    <label class="yn-opt"><span class="yn-box">${(!blank && value === 'Yes') ? '✓' : ''}</span> Yes</label>
+                    <label class="yn-opt"><span class="yn-box">${(!blank && value === 'No') ? '✓' : ''}</span> No</label>
+                </div>
+                <div style="margin-top:8px">
+                    <div class="field-label" style="display:inline">If yes, what size? &nbsp;</div>
+                    <span class="field-value" style="display:inline">${(!blank && value === 'Yes') ? (ifYesValue || '') : ''}</span>
+                    <div class="field-line"></div>
+                </div>
+            </div>`;
+        return `<!DOCTYPE html><html><head>${PRINT_HEAD}
+            <style>
+                /* Override BASE_CSS h1 — strip its own border/margin so form-header controls the framing */
+                .form-header h1 { border-bottom:none !important; padding-bottom:0 !important; margin-bottom:4px !important; font-size:21px; color:var(--royal); }
+                .form-wrap { max-width: 720px; margin: 0 auto; }
+                .form-header { text-align:center; border-top:3px solid var(--gold); border-bottom:3px solid var(--gold); padding:9px 0; margin-bottom:14px; }
+                .form-header p  { font-family:var(--gothic); font-size:9px; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted); margin:0; }
+                .section-title { font-family:var(--gothic); font-size:9px; font-weight:700; letter-spacing:0.14em; text-transform:uppercase; color:var(--gold); background:var(--royal); padding:3px 8px; border-radius:3px; display:inline-block; margin:10px 0 7px; }
+                .two-col { display:grid; grid-template-columns:1fr 1fr; gap:0 22px; }
+                .field-row { margin-bottom:9px; }
+                .field-label { font-family:var(--gothic); font-size:9px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; color:var(--navy); margin-bottom:3px; }
+                .hint { font-family:var(--sans); font-weight:400; text-transform:none; letter-spacing:0; font-size:8.5px; color:var(--muted); }
+                .field-value { font-family:var(--sans); font-size:11px; color:var(--text); min-height:16px; }
+                .field-value-text { font-family:var(--sans); font-size:11px; color:var(--text); margin-bottom:2px; }
+                .field-line { border-bottom:1px solid #bbb; margin-top:3px; }
+                .yesno { display:flex; align-items:center; gap:16px; margin-bottom:2px; }
+                .yn-opt { display:flex; align-items:center; gap:5px; font-family:var(--sans); font-size:11px; }
+                .yn-box { display:inline-block; width:13px; height:13px; border:1.5px solid var(--navy); border-radius:2px; text-align:center; font-size:10px; line-height:12px; }
+                .footer-note { margin-top:12px; padding:7px 10px; border:1px solid #ccc; border-radius:5px; font-size:9.5px; color:#555; font-family:var(--sans); line-height:1.6; }
+                @media print { body { padding:8px; } @page { margin:0.85cm; } }
+            </style>
+        </head><body><div class="form-wrap">
+            <div class="form-header">
+                <h1>New Product Request</h1>
+                <p>Dietrich School Scientific Stockroom &nbsp;·&nbsp; University of Pittsburgh</p>
+            </div>
+
+            <div class="section-title">Requestor Information</div>
+            <div class="two-col">
+                ${line('Name', req.reqName)}
+                ${line('Date', req.reqDate)}
+                ${line('Phone Number', req.reqPhone)}
+                ${line('Email Address', req.reqEmail)}
+                ${line('Building', req.reqBuilding)}
+                ${line('Room Number', req.reqRoom)}
+            </div>
+
+            <div class="section-title">Product Information</div>
+            <div class="two-col">
+                ${line('Manufacturer / Supplier', req.manufacturer)}
+                ${line('Item Number', req.itemNumber)}
+            </div>
+            ${multiline('Item Description / Name', req.itemDescription)}
+            ${multiline('Intended Use', req.intendedUse, 'e.g., office supply, general use, instrumentation cleaning')}
+            ${multiline('Storage Requirements', req.storageReqs, 'e.g., refrigerated, flammable cabinet, ambient')}
+            <div class="two-col">
+                ${line('Unit Size', req.unitSize, 'e.g., 500 mL, 10 g')}
+                ${line('Package Size', req.packageSize, 'e.g., case of 100, pack of 6, each')}
+            </div>
+            ${yesno('Dispensed in units smaller than package size?', req.dispensedSmaller, req.dispensedSmallerSize, 'i.e., sold individually by each, bag, or bottle')}
+            ${line('Estimated Monthly Usage', req.monthlyUsage, 'e.g., 2 cases, 10 units')}
+
+            <div class="footer-note">
+                Submit completed form to the DSS Stockroom (326 Chevron Science Center) or email to
+                <strong>stockroom@pitt.edu</strong>.
+                Requests are reviewed and approved based on demand and storage availability.
+            </div>
+        </div></body></html>`;
+    }
+
+    function buildPackingSlipHTML(slip) {
+        const rows = (slip.items || []).map(it => `
+            <tr>
+                <td style='font-size:13px'>☐</td>
+                <td class='mono bold' style='color:#003594'>${it.location}</td>
+                <td>${it.quantity}</td>
+                <td>${it.itemName}</td>
+                <td class='mono' style='font-size:10px;color:#003594'>${it.internalSKU}</td>
+                <td class='mono' style='font-size:10px;color:#5a6072'>${it.vendorSKUs}</td>
+                <td style='font-size:10px'>${it.expiration || '—'}</td>
+            </tr>`).join('');
+        const notFound = (slip.notFoundSKUs || []).length > 0 ? `
+            <div class='not-found'>
+                <div class='label'>Not Found in Database</div>
+                <ul>${(slip.notFoundSKUs||[]).map(x=>`<li>${typeof x==='string'?x:x.sku+' (Qty: '+x.quantity+')'}</li>`).join('')}</ul>
+            </div>` : '';
+        const notes = slip.notes?.trim() ? `<div class='notes-box'><span class='label'>Notes: </span>${slip.notes}</div>` : '';
+        return `<!DOCTYPE html><html><head>${PRINT_HEAD}</head><body>
+            <h1>Dietrich School Scientific Stockroom — Packing Slip</h1>
+            <div class='meta-grid'>
+                <div><p><span class='label'>Supplier: </span>${slip.supplier||'—'}</p><p><span class='label'>PO #: </span>${slip.poNumber||'—'}</p></div>
+                <div><p><span class='label'>Date Received: </span>${slip.dateReceived||'—'}</p><p><span class='label'>Received By: </span>${slip.receivedBy||'—'}</p></div>
+            </div>
+            <table><thead><tr>
+                <th style='width:20px'>☐</th><th>Location</th><th>Qty</th>
+                <th>Item Name</th><th>Internal SKU</th><th>Vendor SKUs</th><th>Exp.</th>
+            </tr></thead>
+            <tbody>${rows}</tbody></table>
+            ${notes}${notFound}
+            </body></html>`;
+    }
+
+    function buildHazmatBOLHTML(bol) {
+        const matRows = (bol.materials || []).map(m => `
+            <tr>
+                <td class='mono' style='color:#003594'>${m.unNumber}</td>
+                <td>${m.properShippingName}</td>
+                <td style='text-align:center;font-weight:600'>${m.hazardClass}</td>
+                <td style='text-align:center'>${m.packingGroup}</td>
+                <td>${m.quantity}</td>
+                <td>${m.type}</td>
+            </tr>`).join('');
+        return `<!DOCTYPE html><html><head>${PRINT_HEAD}</head><body>
+            <h1>Hazardous Materials Bill of Lading</h1>
+            <p style='text-align:center;font-family:var(--gothic);font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#5a6072;margin-bottom:16px'>49 CFR Compliant</p>
+            <div class='parties-grid'>
+                <div class='party-box'>
+                    <div class='section-badge'>Shipper</div>
+                    <p class='bold'>${bol.shipperName||''}</p>
+                    ${bol.shipperAttn?`<p><span class='label'>Attn: </span>${bol.shipperAttn}</p>`:''}
+                    <p>${bol.shipperAddress||''}</p>
+                    ${bol.shipperAddress2?`<p>${bol.shipperAddress2}</p>`:''}
+                    <p>${bol.shipperCity||''}${bol.shipperCity?', ':''}${bol.shipperState||''} ${bol.shipperZip||''}</p>
+                    <p><span class='label'>Tel: </span>${bol.shipperPhone||''}</p>
+                </div>
+                <div class='party-box'>
+                    <div class='section-badge'>Consignee</div>
+                    <p class='bold'>${bol.consigneeName||''}</p>
+                    ${bol.consigneeAttn?`<p><span class='label'>Attn: </span>${bol.consigneeAttn}</p>`:''}
+                    <p>${bol.consigneeAddress||''}</p>
+                    ${bol.consigneeAddress2?`<p>${bol.consigneeAddress2}</p>`:''}
+                    <p>${bol.consigneeCity||''}${bol.consigneeCity?', ':''}${bol.consigneeState||''} ${bol.consigneeZip||''}</p>
+                    ${bol.consigneePhone?`<p><span class='label'>Tel: </span>${bol.consigneePhone}</p>`:''}
+                </div>
+            </div>
+            <div class='logistics-grid'>
+                <div><span class='label'>Carrier: </span>${bol.carrierName||'—'}</div>
+                <div><span class='label'>Ship Date: </span>${bol.shipDate||'—'}</div>
+                <div><span class='label'>Emergency: </span>${bol.emergencyContact||'—'} ${bol.emergencyPhone||''}</div>
+            </div>
+            ${matRows ? `<h2>Hazardous Materials</h2><table><thead><tr><th>UN #</th><th>Proper Shipping Name</th><th>Hazard Class</th><th>PG</th><th>Quantity</th><th>Type</th></tr></thead><tbody>${matRows}</tbody></table>` : ''}
+            <div class='sig-grid'>
+                <div><p>Shipper Signature</p><div class='sig-line'></div><div class='sig-caption'>Authorized Signature / Date</div></div>
+                <div><p>Carrier Signature</p><div class='sig-line'></div><div class='sig-caption'>Authorized Signature / Date</div></div>
+            </div>
+            </body></html>`;
+    }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       FORMS PAGE — Packing Slip, Hazmat BOL, shared History
+    ══════════════════════════════════════════════════════════════════════ */
+    function FormsPage({ inventory }) {
+        const [subTab, setSubTab] = useState('packing');
+        const [history, setHistory] = useState([]);
+        const [selectedRecord, setSelectedRecord] = useState(null);
+        const [historySearch, setHistorySearch] = useState('');
+
+        // Load unified history
+        useEffect(() => {
+            try {
+                const h = localStorage.getItem('stockroom_forms_history');
+                if (h) setHistory(JSON.parse(h));
+                else {
+                    // Migrate old packing slips
+                    const old = localStorage.getItem('stockroom_packing_slips');
+                    if (old) {
+                        const migrated = JSON.parse(old).map(s => ({ ...s, _type: 'packing' }));
+                        setHistory(migrated);
+                        localStorage.setItem('stockroom_forms_history', JSON.stringify(migrated));
+                    }
+                }
+            } catch(e) {}
+        }, []);
+
+        const saveToHistory = (record) => {
+            try {
+                const updated = [{ ...record, id: Date.now(), createdAt: new Date().toISOString() }, ...history];
+                localStorage.setItem('stockroom_forms_history', JSON.stringify(updated));
+                setHistory(updated);
+            } catch(e) {}
+        };
+
+        const deleteRecord = (id) => {
+            try {
+                const updated = history.filter(h => h.id !== id);
+                localStorage.setItem('stockroom_forms_history', JSON.stringify(updated));
+                setHistory(updated);
+                if (selectedRecord?.id === id) setSelectedRecord(null);
+            } catch(e) {}
+        };
+
+        const exportHistory = () => {
+            try {
+                const blob = new Blob([JSON.stringify(history, null, 2)], { type:'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = `forms_history_${new Date().toISOString().split('T')[0]}.json`;
+                document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            } catch(e) {}
+        };
+
+        const importHistory = (e) => {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    const imported = JSON.parse(ev.target.result);
+                    if (!Array.isArray(imported)) { alert('Invalid file format.'); return; }
+                    const existingIds = new Set(history.map(h => h.id));
+                    const newItems = imported.filter(h => !existingIds.has(h.id));
+                    const merged = [...history, ...newItems];
+                    localStorage.setItem('stockroom_forms_history', JSON.stringify(merged));
+                    setHistory(merged);
+                    alert(`Imported ${newItems.length} record${newItems.length === 1 ? '' : 's'}.`);
+                } catch(e) { alert('Error reading file.'); }
+            };
+            reader.readAsText(file); e.target.value = '';
+        };
+
+        const filteredHistory = history.filter(h => {
+            if (!historySearch) return true;
+            const q = historySearch.toLowerCase();
+            if ((h.poNumber||'').toLowerCase().includes(q)) return true;
+            if ((h.supplier||'').toLowerCase().includes(q)) return true;
+            if ((h.consigneeName||'').toLowerCase().includes(q)) return true;
+            if ((h._type||'').toLowerCase().includes(q)) return true;
+            if ((h.receivedBy||'').toLowerCase().includes(q)) return true;
+            if ((h.notes||'').toLowerCase().includes(q)) return true;
+            if ((h.items||[]).some(i =>
+                (i.itemName||'').toLowerCase().includes(q) ||
+                (i.internalSKU||'').toLowerCase().includes(q) ||
+                (i.vendorSKUs||'').toLowerCase().includes(q) ||
+                (i.expiration||'').toLowerCase().includes(q)
+            )) return true;
+            if ((h.notFoundSKUs||[]).some(x =>
+                typeof x === 'string'
+                    ? x.toLowerCase().includes(q)
+                    : (x.sku||'').toLowerCase().includes(q)
+            )) return true;
+            return false;
+        });
+
+        return (
+            <div>
+                <div className="container page-content">
+                    <div className="sub-tabs">
+                        <button className={`sub-tab ${subTab === 'packing' ? 'active' : ''}`} onClick={() => setSubTab('packing')}>📦 Packing Slip</button>
+                        <button className={`sub-tab ${subTab === 'hazmat' ? 'active' : ''}`} onClick={() => setSubTab('hazmat')}>☢️ Hazmat BOL</button>
+                        <button className={`sub-tab ${subTab === 'newproduct' ? 'active' : ''}`} onClick={() => setSubTab('newproduct')}>🆕 New Product Request</button>
+                        <button className={`sub-tab ${subTab === 'history' ? 'active' : ''}`} onClick={() => setSubTab('history')}>🕐 History ({history.length})</button>
+                    </div>
+
+                    {subTab === 'packing' && <PackingSlipForm inventory={inventory} onSave={saveToHistory} />}
+                    {subTab === 'hazmat'     && <HazmatBOLForm          onSave={saveToHistory} />}
+                    {subTab === 'newproduct' && <NewProductRequestForm   onSave={saveToHistory} />}
+                    {subTab === 'history' && (
+                        <div>
+                            <div className="card">
+                                <h2>Form History</h2>
+                                <div style={{display:'flex', gap:'12px', marginBottom:'16px', flexWrap:'wrap'}}>
+                                    <input type="text" className="form-input" style={{flex:1, minWidth:'200px'}} placeholder="Search by PO, supplier, item name, SKU…" value={historySearch} onChange={e => setHistorySearch(e.target.value)} />
+                                    <button onClick={exportHistory} disabled={!history.length} className="btn btn-primary btn-sm">⬇ Export</button>
+                                    <label className="btn btn-outline btn-sm" style={{margin:0, cursor:'pointer'}}>
+                                        <input type="file" accept=".json" onChange={importHistory} style={{display:'none'}} />
+                                        ⬆ Import
+                                    </label>
+                                </div>
+                                {filteredHistory.length === 0
+                                    ? <p style={{textAlign:'center', color:'var(--muted)', padding:'32px 0'}}>No records found.</p>
+                                    : filteredHistory.map(rec => (
+                                        <div key={rec.id} className="history-item">
+                                            <div>
+                                                <span className={`history-item-type-badge ${rec._type === 'hazmat' ? 'badge-hazmat' : rec._type === 'newproduct' ? 'badge-newproduct' : 'badge-packing'}`}>
+                                                    {rec._type === 'hazmat' ? '☢️ Hazmat BOL' : rec._type === 'newproduct' ? '🆕 Product Request' : '📦 Packing Slip'}
+                                                </span>
+                                            </div>
+                                            <div className="history-item-body">
+                                                <div className="history-item-title">
+                                                    {rec._type === 'hazmat'
+                                                        ? `${rec.consigneeName || '—'}`
+                                                        : rec._type === 'newproduct'
+                                                            ? `${rec.itemDescription || rec.itemNumber || '—'}`
+                                                            : `PO# ${rec.poNumber || '—'}`}
+                                                </div>
+                                                <div className="history-item-meta">
+                                                    {rec._type === 'hazmat'
+                                                        ? `Ship Date: ${rec.shipDate||'—'} · Carrier: ${rec.carrierName||'—'} · Materials: ${(rec.materials||[]).length}`
+                                                        : rec._type === 'newproduct'
+                                                            ? `Requested by: ${rec.reqName||'—'} · ${rec.reqDate||'—'} · ${rec.manufacturer||'—'}`
+                                                            : `Supplier: ${rec.supplier||'—'} · Date: ${rec.dateReceived||'—'} · By: ${rec.receivedBy||'—'} · Items: ${(rec.items||[]).length}`}
+                                                </div>
+                                                <div style={{fontSize:'11px', color:'var(--muted)', marginTop:'3px'}}>Saved: {new Date(rec.createdAt).toLocaleString()}</div>
+                                            </div>
+                                            <div className="history-item-actions">
+                                                <button className="btn btn-outline btn-sm" onClick={() => setSelectedRecord(rec)}>
+                                                    View
+                                                </button>
+                                                <button className="btn btn-red btn-sm" onClick={() => { if(confirm('Delete this record?')) deleteRecord(rec.id); }}>Del</button>
+                                            </div>
+                                        </div>
+                                    ))
+                                }
+                            </div>
+
+                            {/* Record viewer modal */}
+                            {selectedRecord && (
+                                <div className="modal-backdrop" onClick={(e) => { if (e.target === e.currentTarget) setSelectedRecord(null); }}>
+                                    <div className="modal">
+                                        <div className="modal-header">
+                                            <h2>
+                                                {selectedRecord._type === 'hazmat'
+                                                    ? `Hazmat BOL — ${selectedRecord.consigneeName || '—'}`
+                                                    : selectedRecord._type === 'newproduct'
+                                                        ? `Product Request — ${selectedRecord.itemDescription || selectedRecord.itemNumber || '—'}`
+                                                        : `Packing Slip — PO# ${selectedRecord.poNumber || '—'}`}
+                                            </h2>
+                                            <div className="modal-header-actions">
+                                                <button className="btn btn-gold btn-sm" onClick={() =>
+                                                    selectedRecord._type === 'hazmat'
+                                                        ? printDocument(buildHazmatBOLHTML(selectedRecord))
+                                                        : selectedRecord._type === 'newproduct'
+                                                            ? printDocument(buildNewProductRequestHTML(selectedRecord, false))
+                                                            : printDocument(buildPackingSlipHTML(selectedRecord))
+                                                }>🖨 Print</button>
+                                                <button className="modal-close" onClick={() => setSelectedRecord(null)}>✕</button>
+                                            </div>
+                                        </div>
+                                        <div className="modal-body">
+                                            {selectedRecord._type === 'packing'
+                                                ? <PackingSlipPreview slip={selectedRecord} />
+                                                : selectedRecord._type === 'newproduct'
+                                                    ? <NewProductRequestPreview req={selectedRecord} />
+                                                    : <HazmatBOLPreview bol={selectedRecord} />
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+            </div>
+        );
+    }
+
+    /* ── Packing Slip Form ────────────────────────────────────────────── */
+    function PackingSlipForm({ inventory, onSave }) {
+        const [slip, setSlip] = useState({ supplier:'', poNumber:'', dateReceived:'', receivedBy:'', items:[], notes:'', notFoundSKUs:[], _type:'packing' });
+        const [itemInput, setItemInput] = useState('');
+        const [processed, setProcessed] = useState(false);
+
+        const processItems = () => {
+            if (!inventory.length) return;
+            const lines = itemInput.split('\n').filter(l => l.trim());
+            const items = [], notFound = [];
+            const uoms = ['PK','CS','EA','BX','DZ','CT','RL','PL','BT','TB'];
+            lines.forEach(line => {
+                const p = line.split(',').map(x => x.trim());
+                if (p.length < 2) return;
+                const [sku, qty, exp=''] = p;
+                const ns = normalizeSKU(sku);
+                let item = inventory.find(i => normalizeSKU(i.internalSKU) === ns || i.manufacturerSKUs.some(m => normalizeSKU(m) === ns));
+                if (!item) { for (const u of uoms) { item = inventory.find(i => normalizeSKU(i.internalSKU) === ns+u || i.manufacturerSKUs.some(m => normalizeSKU(m) === ns+u)); if (item) break; } }
+                if (!item) { for (const u of uoms) { if (ns.endsWith(u)) { const base = ns.slice(0,-u.length); item = inventory.find(i => normalizeSKU(i.internalSKU) === base || i.manufacturerSKUs.some(m => normalizeSKU(m) === base)); if (item) break; } } }
+                if (item) items.push({ quantity:qty, itemName:item.itemName, internalSKU:item.internalSKU, vendorSKUs:item.manufacturerSKUs.join(', '), expiration:exp, location:item.location });
+                else notFound.push({ sku, quantity:qty });
+            });
+            const sorted = sortByLocation(items);
+            const updated = { ...slip, items:sorted, notFoundSKUs:notFound };
+            setSlip(updated);
+            setProcessed(true);
+            return updated;
+        };
+
+        const handlePrint = () => {
+            const result = processItems();
+            if (result?.items.length) { onSave(result); setTimeout(() => printDocument(buildPackingSlipHTML(result)), 100); }
+        };
+
+        const handleClear = () => {
+            setSlip({ supplier:'', poNumber:'', dateReceived:'', receivedBy:'', items:[], notes:'', notFoundSKUs:[], _type:'packing' });
+            setItemInput(''); setProcessed(false);
+        };
+
+        return (
+            <div>
+                <div className="card">
+                    <h2>Generate Packing Slip</h2>
+                    <div className="grid-2">
+                        <div className="form-group">
+                            <label className="form-label">Supplier</label>
+                            <input type="text" className="form-input" value={slip.supplier} onChange={e => setSlip({...slip, supplier:e.target.value})} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Purchase Order #</label>
+                            <input type="text" className="form-input" value={slip.poNumber} onChange={e => setSlip({...slip, poNumber:e.target.value})} />
+                        </div>
+                    </div>
+                    <div className="grid-2">
+                        <div className="form-group">
+                            <label className="form-label">Date Received</label>
+                            <input type="date" className="form-input" value={slip.dateReceived} onChange={e => setSlip({...slip, dateReceived:e.target.value})} />
+                        </div>
+                        <div className="form-group">
+                            <label className="form-label">Received By</label>
+                            <input type="text" className="form-input" value={slip.receivedBy} onChange={e => setSlip({...slip, receivedBy:e.target.value})} />
+                        </div>
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Items — one per line: SKU, Qty, Expiration (optional)</label>
+                        <textarea className="form-textarea" rows="10" value={itemInput} onChange={e => setItemInput(e.target.value)} placeholder={"SKU-001, 5, 12/31/2025\nSKU-002, 3"} />
+                    </div>
+                    <div className="form-group">
+                        <label className="form-label">Notes</label>
+                        <textarea className="form-textarea" rows="3" value={slip.notes} onChange={e => setSlip({...slip, notes:e.target.value})} />
+                    </div>
+                    <div className="btn-group">
+                        <button onClick={handlePrint} className="btn btn-gold">🖨 Process & Print</button>
+                        <button onClick={handleClear} className="btn btn-ghost">Clear</button>
+                    </div>
+                </div>
+
+                {/* Preview after processing */}
+                {processed && slip.items.length > 0 && (
+                    <div className="card">
+                        <h2>Preview</h2>
+                        <PackingSlipPreview slip={slip} />
+                    </div>
+                )}
+
+            </div>
+        );
+    }
+
+    function PackingSlipPreview({ slip }) {
+        return (
+            <div>
+                <div className="grid-2" style={{marginBottom:'16px', fontSize:'14px'}}>
+                    <div>
+                        <p><strong>Supplier:</strong> {slip.supplier || '—'}</p>
+                        <p><strong>PO #:</strong> {slip.poNumber || '—'}</p>
+                    </div>
+                    <div>
+                        <p><strong>Date Received:</strong> {slip.dateReceived || '—'}</p>
+                        <p><strong>Received By:</strong> {slip.receivedBy || '—'}</p>
+                    </div>
+                </div>
+                <div className="preview-scroll">
+                    <div className="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Location</th>
+                                    <th>Qty</th>
+                                    <th>Item Name</th>
+                                    <th>Internal SKU</th>
+                                    <th>Vendor SKUs</th>
+                                    <th>Exp.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {slip.items.map((it, i) => (
+                                    <tr key={i}>
+                                        <td style={{fontFamily:'var(--mono)', fontWeight:700, fontSize:'12px'}}>{it.location}</td>
+                                        <td>{it.quantity}</td>
+                                        <td style={{fontSize:'13px'}}>{it.itemName}</td>
+                                        <td style={{fontFamily:'var(--mono)', fontSize:'11px'}}>{it.internalSKU}</td>
+                                        <td style={{fontFamily:'var(--mono)', fontSize:'11px', color:'var(--muted)'}}>{it.vendorSKUs}</td>
+                                        <td style={{fontSize:'12px'}}>{it.expiration || '—'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {slip.notes?.trim() && (
+                    <div style={{marginTop:'14px', padding:'12px', background:'var(--bg)', borderRadius:'6px', fontSize:'13px'}}>
+                        <strong>Notes:</strong> {slip.notes}
+                    </div>
+                )}
+                {slip.notFoundSKUs?.length > 0 && (
+                    <div className="alert alert-error" style={{marginTop:'14px', marginBottom:0}}>
+                        <strong>Not Found:</strong>
+                        <ul style={{margin:'8px 0 0 20px', fontSize:'13px'}}>
+                            {slip.notFoundSKUs.map((x, i) => <li key={i} style={{fontFamily:'var(--mono)'}}>{typeof x === 'string' ? x : `${x.sku} (Qty: ${x.quantity})`}</li>)}
+                        </ul>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+        /* ── New Product Request Form ───────────────────────────────────── */
+    function NewProductRequestForm({ onSave }) {
+        const empty = {
+            _type:'newproduct',
+            reqName:'', reqDate:'', reqPhone:'', reqEmail:'', reqBuilding:'', reqRoom:'',
+            manufacturer:'', itemNumber:'', itemDescription:'', intendedUse:'',
+            storageReqs:'', unitSize:'', packageSize:'', dispensedSmaller:'', dispensedSmallerSize:'', monthlyUsage:''
+        };
+        const [req, setReq] = useState(empty);
+        const set = (k, v) => setReq(r => ({...r, [k]: v}));
+
+        const handlePrintFilled = () => {
+            onSave({ ...req, id: Date.now(), createdAt: new Date().toISOString() });
+            printDocument(buildNewProductRequestHTML(req, false));
+        };
+        const handlePrintBlank = () => {
+            printDocument(buildNewProductRequestHTML({}, true));
+        };
+        const handleClear = () => setReq(empty);
+
+        const Field = ({ label, field, hint, type='text', placeholder='' }) => (
+            <div className="form-group">
+                <label className="form-label">{label}{hint && <span style={{fontWeight:400, textTransform:'none', letterSpacing:0, fontSize:'11px', color:'var(--muted)', fontFamily:'var(--sans)', marginLeft:'6px'}}>— {hint}</span>}</label>
+                {type === 'textarea'
+                    ? <textarea className="form-textarea" rows={2} value={req[field]} onChange={e => set(field, e.target.value)} placeholder={placeholder} />
+                    : <input type={type} className="form-input" value={req[field]} onChange={e => set(field, e.target.value)} placeholder={placeholder} />
+                }
+            </div>
+        );
+
+        return (
+            <div>
+                <div className="card">
+                    <h2>New Product Request</h2>
+
+                    <h3 style={{marginBottom:'16px'}}>Requestor Information</h3>
+                    <div className="grid-2">
+                        <Field label="Name"         field="reqName" />
+                        <Field label="Date"         field="reqDate" type="date" />
+                        <Field label="Phone Number" field="reqPhone" placeholder="412-XXX-XXXX" />
+                        <Field label="Email Address" field="reqEmail" type="email" placeholder="user@pitt.edu" />
+                        <Field label="Building"     field="reqBuilding" />
+                        <Field label="Room Number"  field="reqRoom" />
+                    </div>
+
+                    <h3 style={{margin:'8px 0 16px'}}>Product Information</h3>
+                    <div className="grid-2">
+                        <Field label="Manufacturer / Supplier" field="manufacturer" />
+                        <Field label="Item Number"             field="itemNumber" />
+                    </div>
+                    <Field label="Item Description / Name" field="itemDescription" />
+                    <Field label="Intended Use" field="intendedUse" hint="e.g., office supply, general use, instrumentation cleaning" type="textarea" />
+                    <Field label="Storage Requirements" field="storageReqs" hint="e.g., refrigerated, flammable cabinet, ambient" />
+                    <div className="grid-2">
+                        <Field label="Unit Size"    field="unitSize"    hint="e.g., 500 mL, 10 g" />
+                        <Field label="Package Size" field="packageSize" hint="e.g., case of 100, pack of 6, each" />
+                    </div>
+
+                    <div className="form-group">
+                        <label className="form-label">
+                            Dispensed in units smaller than package size?
+                            <span style={{fontWeight:400, textTransform:'none', letterSpacing:0, fontSize:'11px', color:'var(--muted)', fontFamily:'var(--sans)', marginLeft:'6px'}}>— i.e., sold individually by each, bag, or bottle</span>
+                        </label>
+                        <div style={{display:'flex', gap:'16px', marginTop:'4px', marginBottom:'10px'}}>
+                            {['Yes','No'].map(opt => (
+                                <label key={opt} style={{display:'flex', alignItems:'center', gap:'8px', cursor:'pointer', fontSize:'14px', fontFamily:'var(--sans)'}}>
+                                    <input
+                                        type="radio"
+                                        name="dispensedSmaller"
+                                        value={opt}
+                                        checked={req.dispensedSmaller === opt}
+                                        onChange={() => set('dispensedSmaller', opt)}
+                                        style={{accentColor:'var(--royal)', width:'16px', height:'16px'}}
+                                    />
+                                    {opt}
+                                </label>
+                            ))}
+                        </div>
+                        {req.dispensedSmaller === 'Yes' && (
+                            <div>
+                                <label className="form-label">If yes, what size?</label>
+                                <input type="text" className="form-input" value={req.dispensedSmallerSize} onChange={e => set('dispensedSmallerSize', e.target.value)} placeholder="e.g., 500 mL bottle, individual bag" />
+                            </div>
+                        )}
+                    </div>
+
+                    <Field label="Estimated Monthly Usage" field="monthlyUsage" hint="e.g., 2 cases, 10 units" />
+
+                    <div className="btn-group" style={{marginTop:'8px'}}>
+                        <button onClick={handlePrintFilled} className="btn btn-gold">🖨 Print Filled Form</button>
+                        <button onClick={handlePrintBlank}  className="btn btn-outline">🖨 Print Blank Form</button>
+                        <button onClick={handleClear}       className="btn btn-ghost">Clear</button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    /* ── Hazmat BOL Form ─────────────────────────────────────────────── */
+    function HazmatBOLForm({ onSave }) {
+        const [bol, setBol] = useState({
+            _type:'hazmat',
+            shipperName:'UNIVERSITY OF PITTSBURGH', shipperAttn:'', shipperAddress:'CHEMISTRY STOCKROOM', shipperAddress2:'219 PARKMAN AVE RM326',
+            shipperCity:'PITTSBURGH', shipperState:'PA', shipperZip:'15213', shipperPhone:'412-624-8551',
+            consigneeName:'', consigneeAttn:'', consigneeAddress:'', consigneeAddress2:'', consigneeCity:'', consigneeState:'', consigneeZip:'', consigneePhone:'',
+            carrierName:'', carrierPhone:'', shipDate:'', emergencyContact:'', emergencyPhone:'', materials:[]
+        });
+        const [matInput, setMatInput] = useState('');
+
+        const processMaterials = () => {
+            const lines = matInput.split('\n').filter(l => l.trim());
+            const materials = lines.map(line => {
+                const p = line.split(',').map(x => x.trim());
+                return { unNumber:p[0]||'', properShippingName:p[1]||'', hazardClass:p[2]||'', packingGroup:p[3]||'', quantity:p[4]||'', type:p[5]||'' };
+            });
+            return { ...bol, materials };
+        };
+
+        const handlePrint = () => {
+            const result = processMaterials();
+            setBol(result);
+            onSave(result);
+            setTimeout(() => printDocument(buildHazmatBOLHTML(result)), 100);
+        };
+
+        const handleClear = () => {
+            setBol({
+                _type:'hazmat',
+                shipperName:'UNIVERSITY OF PITTSBURGH', shipperAttn:'', shipperAddress:'CHEMISTRY STOCKROOM', shipperAddress2:'219 PARKMAN AVE RM326',
+                shipperCity:'PITTSBURGH', shipperState:'PA', shipperZip:'15213', shipperPhone:'412-624-8551',
+                consigneeName:'', consigneeAttn:'', consigneeAddress:'', consigneeAddress2:'', consigneeCity:'', consigneeState:'', consigneeZip:'', consigneePhone:'',
+                carrierName:'', carrierPhone:'', shipDate:'', emergencyContact:'', emergencyPhone:'', materials:[]
+            });
+            setMatInput('');
+        };
+
+        const set = (k, v) => setBol(b => ({...b, [k]:v}));
+
+        return (
+            <div>
+                <div className="card">
+                    <h2>Hazardous Materials Bill of Lading</h2>
+                    <div style={{fontSize:'12px', color:'var(--muted)', marginBottom:'20px'}}>Compliant with 49 CFR requirements</div>
+
+                    {/* Shipper */}
+                    <div className="bol-section-label">Shipper</div>
+                    <div className="grid-2">
+                        <div className="form-group"><label className="form-label">Name</label><input type="text" className="form-input" value={bol.shipperName} onChange={e => set('shipperName', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Attn</label><input type="text" className="form-input" value={bol.shipperAttn} onChange={e => set('shipperAttn', e.target.value)} /></div>
+                    </div>
+                    <div className="grid-2">
+                        <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" value={bol.shipperAddress} onChange={e => set('shipperAddress', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Address Line 2</label><input type="text" className="form-input" value={bol.shipperAddress2} onChange={e => set('shipperAddress2', e.target.value)} /></div>
+                    </div>
+                    <div className="grid-3">
+                        <div className="form-group"><label className="form-label">City</label><input type="text" className="form-input" value={bol.shipperCity} onChange={e => set('shipperCity', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">State</label><input type="text" className="form-input" value={bol.shipperState} onChange={e => set('shipperState', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">ZIP</label><input type="text" className="form-input" value={bol.shipperZip} onChange={e => set('shipperZip', e.target.value)} /></div>
+                    </div>
+                    <div className="form-group" style={{marginBottom:'24px'}}><label className="form-label">Phone</label><input type="text" className="form-input" value={bol.shipperPhone} onChange={e => set('shipperPhone', e.target.value)} /></div>
+
+                    {/* Consignee */}
+                    <div className="bol-section-label">Consignee</div>
+                    <div className="grid-2">
+                        <div className="form-group"><label className="form-label">Name</label><input type="text" className="form-input" value={bol.consigneeName} onChange={e => set('consigneeName', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Attn</label><input type="text" className="form-input" value={bol.consigneeAttn} onChange={e => set('consigneeAttn', e.target.value)} /></div>
+                    </div>
+                    <div className="grid-2">
+                        <div className="form-group"><label className="form-label">Address</label><input type="text" className="form-input" value={bol.consigneeAddress} onChange={e => set('consigneeAddress', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Address Line 2</label><input type="text" className="form-input" value={bol.consigneeAddress2} onChange={e => set('consigneeAddress2', e.target.value)} /></div>
+                    </div>
+                    <div className="grid-3">
+                        <div className="form-group"><label className="form-label">City</label><input type="text" className="form-input" value={bol.consigneeCity} onChange={e => set('consigneeCity', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">State</label><input type="text" className="form-input" value={bol.consigneeState} onChange={e => set('consigneeState', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">ZIP</label><input type="text" className="form-input" value={bol.consigneeZip} onChange={e => set('consigneeZip', e.target.value)} /></div>
+                    </div>
+                    <div className="form-group" style={{marginBottom:'24px'}}><label className="form-label">Phone</label><input type="text" className="form-input" value={bol.consigneePhone} onChange={e => set('consigneePhone', e.target.value)} /></div>
+
+                    {/* Carrier / Emergency */}
+                    <div className="bol-section-label">Carrier & Emergency</div>
+                    <div className="grid-2">
+                        <div className="form-group"><label className="form-label">Carrier Name</label><input type="text" className="form-input" value={bol.carrierName} onChange={e => set('carrierName', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Carrier Phone</label><input type="text" className="form-input" value={bol.carrierPhone} onChange={e => set('carrierPhone', e.target.value)} /></div>
+                    </div>
+                    <div className="grid-3">
+                        <div className="form-group"><label className="form-label">Ship Date</label><input type="date" className="form-input" value={bol.shipDate} onChange={e => set('shipDate', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Emergency Contact</label><input type="text" className="form-input" value={bol.emergencyContact} onChange={e => set('emergencyContact', e.target.value)} /></div>
+                        <div className="form-group"><label className="form-label">Emergency Phone</label><input type="text" className="form-input" value={bol.emergencyPhone} onChange={e => set('emergencyPhone', e.target.value)} /></div>
+                    </div>
+
+                    {/* Hazardous Materials */}
+                    <div className="bol-section-label">Hazardous Materials</div>
+                    <div className="form-group">
+                        <label className="form-label">Materials — one per line: UN#, Proper Shipping Name, Hazard Class, Packing Group, Quantity, Type</label>
+                        <textarea className="form-textarea" rows="6" value={matInput} onChange={e => setMatInput(e.target.value)} placeholder={"UN1090, Acetone, 3, II, 1L, Flammable Liquid\nUN2672, Ammonia Solution, 8, III, 500mL, Corrosive"} />
+                    </div>
+
+                    <div className="btn-group">
+                        <button onClick={handlePrint} className="btn btn-gold">🖨 Generate & Print</button>
+                        <button onClick={handleClear} className="btn btn-ghost">Clear</button>
+                    </div>
+                </div>
+
+            </div>
+        );
+    }
+
+    function HazmatBOLPreview({ bol }) {
+        return (
+            <div style={{fontSize:'13px'}}>
+                <div className="grid-2" style={{marginBottom:'16px'}}>
+                    <div>
+                        <p style={{fontWeight:700, marginBottom:'4px', color:'var(--navy)'}}>Shipper</p>
+                        <p>{bol.shipperName}</p>
+                        {bol.shipperAttn && <p>Attn: {bol.shipperAttn}</p>}
+                        <p>{bol.shipperAddress}</p>
+                        {bol.shipperAddress2 && <p>{bol.shipperAddress2}</p>}
+                        <p>{bol.shipperCity}, {bol.shipperState} {bol.shipperZip}</p>
+                        <p>{bol.shipperPhone}</p>
+                    </div>
+                    <div>
+                        <p style={{fontWeight:700, marginBottom:'4px', color:'var(--navy)'}}>Consignee</p>
+                        <p>{bol.consigneeName}</p>
+                        {bol.consigneeAttn && <p>Attn: {bol.consigneeAttn}</p>}
+                        <p>{bol.consigneeAddress}</p>
+                        {bol.consigneeAddress2 && <p>{bol.consigneeAddress2}</p>}
+                        <p>{bol.consigneeCity}{bol.consigneeCity ? ', ' : ''}{bol.consigneeState} {bol.consigneeZip}</p>
+                        <p>{bol.consigneePhone}</p>
+                    </div>
+                </div>
+                <div className="grid-3" style={{marginBottom:'16px'}}>
+                    <div><strong>Carrier:</strong> {bol.carrierName || '—'}</div>
+                    <div><strong>Ship Date:</strong> {bol.shipDate || '—'}</div>
+                    <div><strong>Emergency:</strong> {bol.emergencyContact || '—'} {bol.emergencyPhone || ''}</div>
+                </div>
+                {bol.materials?.length > 0 && (
+                    <div className="table-wrap">
+                        <table>
+                            <thead><tr><th>UN#</th><th>Proper Shipping Name</th><th>Hazard Class</th><th>PG</th><th>Quantity</th><th>Type</th></tr></thead>
+                            <tbody>{bol.materials.map((m, i) => <tr key={i}><td style={{fontFamily:'var(--mono)', fontSize:'12px'}}>{m.unNumber}</td><td>{m.properShippingName}</td><td style={{textAlign:'center'}}>{m.hazardClass}</td><td style={{textAlign:'center'}}>{m.packingGroup}</td><td>{m.quantity}</td><td>{m.type}</td></tr>)}</tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    function NewProductRequestPreview({ req }) {
+        const Row = ({ label, value }) => value ? (
+            <div style={{display:'flex', gap:'8px', padding:'6px 0', borderBottom:'1px solid var(--border)', fontSize:'13px'}}>
+                <span style={{fontFamily:'var(--gothic)', fontSize:'10px', fontWeight:700, letterSpacing:'0.08em', textTransform:'uppercase', color:'var(--navy)', minWidth:'180px', paddingTop:'2px'}}>{label}</span>
+                <span style={{color:'var(--text)'}}>{value}</span>
+            </div>
+        ) : null;
+        return (
+            <div>
+                <div style={{marginBottom:'16px', padding:'10px 14px', background:'var(--sky)', borderRadius:'6px', borderLeft:'4px solid var(--royal)', fontSize:'13px'}}>
+                    <div className="grid-2" style={{gap:'8px'}}>
+                        <div><strong>Requested by:</strong> {req.reqName || '—'}</div>
+                        <div><strong>Date:</strong> {req.reqDate || '—'}</div>
+                        <div><strong>Phone:</strong> {req.reqPhone || '—'}</div>
+                        <div><strong>Email:</strong> {req.reqEmail || '—'}</div>
+                        <div><strong>Building:</strong> {req.reqBuilding || '—'}</div>
+                        <div><strong>Room:</strong> {req.reqRoom || '—'}</div>
+                    </div>
+                </div>
+                <Row label="Manufacturer / Supplier"  value={req.manufacturer} />
+                <Row label="Item Number"              value={req.itemNumber} />
+                <Row label="Item Description / Name"  value={req.itemDescription} />
+                <Row label="Intended Use"             value={req.intendedUse} />
+                <Row label="Storage Requirements"     value={req.storageReqs} />
+                <Row label="Unit Size"                value={req.unitSize} />
+                <Row label="Package Size"             value={req.packageSize} />
+                <Row label="Dispensed in smaller units?" value={req.dispensedSmaller} />
+                {req.dispensedSmaller === 'Yes' && <Row label="If yes, what size?" value={req.dispensedSmallerSize} />}
+                <Row label="Est. Monthly Usage"       value={req.monthlyUsage} />
+            </div>
+        );
+    }
+
+    mountPage({
+        page: 'forms',
+        title: "Forms",
+        desc: "Packing slips, commercial hazmat bills of lading, product requests, and form history",
+        render: (data) => <FormsPage inventory={data.inventory} />
+    });
+    </script>
+</body>
+</html>
