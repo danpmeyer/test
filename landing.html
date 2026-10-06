@@ -94,7 +94,8 @@
            horizontal/vertical stretch that breathes in opposite directions. */
         (function () {
             var cv = document.getElementById('bg'), ctx = cv.getContext('2d');
-            var W, H, dpr, S, still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var W, H, dpr, S, calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var SPEED = calm ? 0.45 : 1, AMP = calm ? 0.6 : 1;   // reduced-motion: slower and gentler, never frozen
             function resize() {
                 dpr = Math.min(window.devicePixelRatio || 1, 2);
                 W = window.innerWidth; H = window.innerHeight;
@@ -102,7 +103,7 @@
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
                 S = W < 600 ? 38 : 52;                      // grid spacing
             }
-            resize(); window.addEventListener('resize', function () { resize(); if (still) frame(0); });
+            resize(); window.addEventListener('resize', resize);
 
             var R = Math.hypot(1, 1);
             function warp(x, y, t) {
@@ -112,9 +113,9 @@
                 var b = Math.sin((nx + ny) * 6.3 - t * 0.78);
                 var reach = Math.max(W, H) * 0.62;
                 var ring = Math.sin(d * 0.017 - t * 1.5) * Math.exp(-d / reach);      // outward pulse
-                var sx = 1 + 0.07 * Math.sin(t * 0.43), sy = 1 + 0.07 * Math.cos(t * 0.37);  // stretch
-                var ox = a * 8 + b * 5 + (dx / d) * ring * 20;
-                var oy = b * 8 + a * 4 + (dy / d) * ring * 20;
+                var sx = 1 + 0.10 * AMP * Math.sin(t * 0.43), sy = 1 + 0.10 * AMP * Math.cos(t * 0.37);  // stretch
+                var ox = (a * 16 + b * 10 + (dx / d) * ring * 34) * AMP;
+                var oy = (b * 16 + a * 8 + (dy / d) * ring * 34) * AMP;
                 return { x: cx + dx * sx + ox, y: cy + dy * sy + oy, ring: ring, w: Math.abs(a + b) / 4 };
             }
             function line(vertical, pos, t) {
@@ -132,14 +133,14 @@
                 }
             }
             function frame(ms) {
-                var t = ms / 1000;
+                var t = ms / 1000 * SPEED * 1.35;
                 ctx.clearRect(0, 0, W, H);
                 var pad = 3 * S;
                 for (var x = -pad; x <= W + pad; x += S) line(true, x, t);
                 for (var y = -pad; y <= H + pad; y += S) line(false, y, t);
-                if (!still) requestAnimationFrame(frame);
+                requestAnimationFrame(frame);
             }
-            if (still) frame(4200); else requestAnimationFrame(frame);
+            requestAnimationFrame(frame);
         })();
     </script>
     <script>
