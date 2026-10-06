@@ -11,6 +11,7 @@
             try {
                 if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
                 document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-palette', localStorage.getItem('stockroom_palette') === 'default' ? 'default' : 'autumn');
             } catch (e) {}
         })();
     </script>

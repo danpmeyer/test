@@ -9,6 +9,16 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script>
+        /* Palette + appearance, read before paint. Autumn is the default palette. */
+        (function () {
+            var pal = 'autumn', th = 'light';
+            try { pal = localStorage.getItem('stockroom_palette') === 'default' ? 'default' : 'autumn'; th = localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light'; } catch (e) {}
+            window.PALETTE = pal;
+            document.documentElement.setAttribute('data-palette', pal);
+            document.documentElement.setAttribute('data-theme', th);
+        })();
+    </script>
     <style>
         :root {
             --royal: #003594; --gold: #FFB81C; --navy: #00205B; --sky: #DBEEFF;
@@ -22,6 +32,15 @@
             font-family: var(--sans); color: #fff; overflow: hidden;
             background: linear-gradient(155deg, var(--navy) 0%, #00296f 45%, var(--royal) 100%);
         }
+        /* Autumn: warm umber to rust, still dark enough for the gold logo to pop */
+        [data-palette="autumn"] body { background: linear-gradient(155deg, #1d0c04 0%, #44190a 48%, #86320f 100%); }
+        [data-palette="autumn"][data-theme="dark"] body { background: linear-gradient(155deg, #0b0502 0%, #240e05 50%, #4d1d09 100%); }
+        [data-palette="autumn"] .vignette { background: radial-gradient(ellipse 60% 55% at 50% 50%, rgba(28,10,3,.74) 0%, rgba(28,10,3,.36) 55%, rgba(28,10,3,0) 100%); }
+        [data-palette="autumn"] .blurb { color: rgba(255,238,214,.94); }
+        [data-palette="autumn"] .foot { color: rgba(255,226,190,.7); }
+        [data-palette="autumn"] .gate-row { background: rgba(22,9,3,.78); }
+        [data-palette="autumn"] .gate-row:focus-within { background: rgba(22,9,3,.88); }
+        [data-palette="autumn"] .err { color: #ffb08f; }
 
         /* Background: a canvas-drawn grid that is warped, stretched and pulsed (see script) */
         #bg { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
@@ -93,6 +112,7 @@
            a ring that pulses outward from the centre (lit gold as it passes), and a slow
            horizontal/vertical stretch that breathes in opposite directions. */
         (function () {
+            if (window.PALETTE !== 'default') return;
             var cv = document.getElementById('bg'), ctx = cv.getContext('2d');
             var W, H, dpr, S, calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             var SPEED = calm ? 0.45 : 1, AMP = calm ? 0.6 : 1;   // reduced-motion: slower and gentler, never frozen
@@ -186,6 +206,130 @@
                 var pad = 3 * S;
                 for (var x = -pad; x <= W + pad; x += S) line(true, x, t);
                 for (var y = -pad; y <= H + pad; y += S) line(false, y, t);
+                requestAnimationFrame(frame);
+            }
+            requestAnimationFrame(frame);
+        })();
+    </script>
+
+    <script>
+        /* Autumn: multicolored, multi-shaped leaves fall and tumble. Cursor (or finger) movement
+           pushes and spins nearby leaves, and a click or tap sends out a burst. */
+        (function () {
+            if (window.PALETTE !== 'autumn') return;
+            var cv = document.getElementById('bg'), ctx = cv.getContext('2d');
+            var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            var FALL = calm ? 0.55 : 1, PUSH = calm ? 0.6 : 1;      // reduced-motion: slower fall, softer push (never frozen)
+            var W, H, dpr, leaves = [];
+
+            /* ── Leaf outlines, defined once in unit space (about -1..1) ── */
+            function mirror(half) { return half.concat(half.slice().reverse().map(function (p) { return [-p[0], p[1]]; })); }
+            function poly(pts) { var p = new Path2D(); p.moveTo(pts[0][0], pts[0][1]); for (var i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]); p.closePath(); return p; }
+            var SHAPES = [];
+            // maple (five pointed lobes)
+            SHAPES.push({ path: poly(mirror([[0,-1],[.15,-.66],[.5,-.84],[.42,-.34],[.98,-.3],[.64,.02],[.84,.42],[.34,.3],[.1,.6],[.05,.8]])), stem: 1.18, w: 3 });
+            // oak (rounded lobes)
+            (function () { var pts = [], n = 56; for (var i = 0; i < n; i++) { var a = i / n * Math.PI * 2, r = .72 + .2 * Math.sin(a * 7); pts.push([Math.sin(a) * r * .66, -Math.cos(a) * r * 1.12]); } SHAPES.push({ path: poly(pts), stem: 1.22, w: 2 }); })();
+            // aspen / birch (rounded with a tip)
+            (function () { var p = new Path2D(); p.moveTo(0,-1); p.bezierCurveTo(.98,-.5,.88,.62,0,.92); p.bezierCurveTo(-.88,.62,-.98,-.5,0,-1); SHAPES.push({ path: p, stem: 1.18, w: 2 }); })();
+            // willow (long and narrow)
+            (function () { var p = new Path2D(); p.moveTo(0,-1.1); p.bezierCurveTo(.42,-.5,.36,.5,0,.98); p.bezierCurveTo(-.36,.5,-.42,-.5,0,-1.1); SHAPES.push({ path: p, stem: 1.2, w: 1 }); })();
+            // ginkgo (fan)
+            (function () { var p = new Path2D(); p.moveTo(0,.92); p.lineTo(-.96,-.32); p.bezierCurveTo(-.78,-1,-.2,-.9,0,-.7); p.bezierCurveTo(.2,-.9,.78,-1,.96,-.32); p.closePath(); SHAPES.push({ path: p, stem: 1.15, w: 1 }); })();
+            var bag = []; SHAPES.forEach(function (s, i) { for (var k = 0; k < s.w; k++) bag.push(i); });
+
+            var COLORS = ['#c2311b', '#d8441a', '#e8641a', '#f08a1c', '#FFB81C', '#e3a21a', '#a8561a', '#b4501a', '#b3261e', '#a3281c', '#6f7d1f', '#9a8a1c'];
+            var rnd = function (a, b) { return a + Math.random() * (b - a); };
+
+            function make(spreadY) {
+                var z = rnd(.55, 1.25), size = rnd(15, 34) * z;
+                return {
+                    shape: SHAPES[bag[Math.floor(Math.random() * bag.length)]], color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                    z: z, size: size, x: rnd(0, W), y: spreadY ? rnd(-40, H) : -size * 1.4,
+                    vx: 0, vy: 0, baseVy: rnd(34, 78) * z, amp: rnd(14, 38), freq: rnd(.5, 1.3), ph: rnd(0, 6.28),
+                    rot: rnd(-3.14, 3.14), w: 0, flip: rnd(0, 6.28), flipV: rnd(.7, 2.2), boost: 0, spin: Math.random() < .5 ? -1 : 1
+                };
+            }
+            function resize() {
+                dpr = Math.min(window.devicePixelRatio || 1, 2);
+                W = window.innerWidth; H = window.innerHeight;
+                cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                var n = Math.max(30, Math.min(95, Math.round(W * H / 15000)));
+                while (leaves.length < n) leaves.push(make(true));
+                leaves.length = n;
+                leaves.sort(function (a, b) { return a.z - b.z; });        // far leaves are painted first
+            }
+            resize(); window.addEventListener('resize', resize);
+            cv.__leaves = leaves;                                           // (inspection hook; harmless)
+
+            /* ── Pointer ── */
+            var mx = null, my = null, pmx = null, pmy = null, cvx = 0, cvy = 0, bursts = [];
+            function aim(e) { var p = e.touches ? e.touches[0] : e; if (p) { mx = p.clientX; my = p.clientY; } }
+            window.addEventListener('pointermove', aim, { passive: true });
+            window.addEventListener('touchmove', aim, { passive: true });
+            window.addEventListener('touchstart', aim, { passive: true });
+            document.addEventListener('pointerleave', function () { mx = my = pmx = pmy = null; });
+            window.addEventListener('blur', function () { mx = my = pmx = pmy = null; });
+            window.addEventListener('pointerdown', function (e) { if (e.target.closest && e.target.closest('input,button,a')) return; bursts.push({ x: e.clientX, y: e.clientY }); });
+
+            var last = 0;
+            function frame(ms) {
+                var t = ms / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
+
+                // smoothed cursor velocity (px/s)
+                if (mx !== null) {
+                    if (pmx !== null) { cvx = cvx * 0.75 + ((mx - pmx) / dt) * 0.25; cvy = cvy * 0.75 + ((my - pmy) / dt) * 0.25; }
+                    pmx = mx; pmy = my;
+                } else { cvx *= 0.9; cvy *= 0.9; }
+                var cs = Math.min(1800, Math.hypot(cvx, cvy));
+
+                ctx.clearRect(0, 0, W, H);
+                for (var i = 0; i < leaves.length; i++) {
+                    var L = leaves[i];
+                    // drift toward terminal fall + sway
+                    var tvx = Math.sin(t * L.freq + L.ph) * L.amp * FALL, tvy = L.baseVy * FALL;
+                    L.vx += (tvx - L.vx) * Math.min(1, dt * 1.7);
+                    L.vy += (tvy - L.vy) * Math.min(1, dt * 1.1);
+
+                    // cursor disturbance
+                    if (mx !== null) {
+                        var dx = L.x - mx, dy = L.y - my, d = Math.hypot(dx, dy) || 1, R = 150 + L.size * 1.5;
+                        if (d < R) {
+                            var f = 1 - d / R, push = f * f * PUSH;
+                            L.vx += (dx / d) * push * 2600 * dt + cvx * push * 5 * dt;
+                            L.vy += (dy / d) * push * 2600 * dt + cvy * push * 5 * dt;
+                            L.w += L.spin * (push * 9 + cs / 700 * push * 10) * dt;
+                            L.boost = Math.max(L.boost, push);
+                        }
+                    }
+                    for (var b = 0; b < bursts.length; b++) {            // click / tap burst
+                        var bx = L.x - bursts[b].x, by = L.y - bursts[b].y, bd = Math.hypot(bx, by) || 1;
+                        if (bd < 260) { var bf = (1 - bd / 260) * PUSH; L.vx += (bx / bd) * bf * 520; L.vy += (by / bd) * bf * 520 - 80 * bf; L.w += L.spin * bf * 7; L.boost = Math.max(L.boost, bf); }
+                    }
+
+                    // rotation: settle toward a gentle sway, plus any spin from impulses
+                    var target = Math.sin(t * L.freq * 1.3 + L.ph) * 0.55 + L.vx * 0.003;
+                    var diff = L.rot - target; diff = ((diff + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+                    L.rot = target + diff; L.rot += (target - L.rot) * Math.min(1, dt * 1.2) + L.w * dt;
+                    L.w *= Math.max(0, 1 - dt * 1.4);
+                    L.boost *= Math.max(0, 1 - dt * 1.6);
+                    L.flip += L.flipV * (1 + L.boost * 4) * dt;
+
+                    L.x += L.vx * dt; L.y += L.vy * dt;
+                    if (L.y > H + L.size * 1.6) { var n = make(false); n.z = L.z; leaves[i] = L = n; L.x = rnd(0, W); }
+                    if (L.x < -L.size * 2) L.x = W + L.size * 2; else if (L.x > W + L.size * 2) L.x = -L.size * 2;
+
+                    // draw: scaleX = cos(flip) fakes a tumbling leaf; edge-on leaves fade a little
+                    var sx = Math.cos(L.flip), face = Math.abs(sx);
+                    ctx.save();
+                    ctx.translate(L.x, L.y); ctx.rotate(L.rot); ctx.scale(L.size * (0.18 + 0.82 * face) * (sx < 0 ? -1 : 1), L.size);
+                    ctx.globalAlpha = (0.62 + 0.38 * face) * (0.72 + 0.28 * Math.min(1, L.z));
+                    ctx.fillStyle = L.color; ctx.fill(L.shape.path);
+                    ctx.globalAlpha *= 0.55; ctx.strokeStyle = '#2a0e04'; ctx.lineWidth = 0.055;
+                    ctx.beginPath(); ctx.moveTo(0, -0.82); ctx.lineTo(0, L.shape.stem); ctx.stroke();      // midrib + stem
+                    ctx.restore();
+                }
+                bursts.length = 0;
                 requestAnimationFrame(frame);
             }
             requestAnimationFrame(frame);

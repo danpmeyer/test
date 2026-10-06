@@ -13,6 +13,7 @@ const { useState, useEffect, useRef, useCallback, useMemo } = React;
 /* ── Keys / constants ──────────────────────────────────────────────────── */
 const AUTH_KEY      = 'stockroom_auth';
 const THEME_KEY     = 'stockroom_theme';
+const PALETTE_KEY   = 'stockroom_palette';
 const RECENT_KEY    = 'stockroom_recent_tools';
 const PINNED_KEY    = 'stockroom_pinned_tools';
 const SIDEBAR_KEY   = 'stockroom_sidebar_collapsed';
@@ -389,6 +390,8 @@ const ICON_PATHS = {
     copy:      '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     x:         '<path d="M18 6 6 18M6 6l12 12"/>',
     chart:     '<path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/>',
+    gear:      '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    leaf:      '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
     corner:    '<path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
 };
 function Icon({ name, size = 18, className = '', style }) {
@@ -405,11 +408,30 @@ function Icon({ name, size = 18, className = '', style }) {
 ══════════════════════════════════════════════════════════════════════ */
 function getTheme() { try { return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'; } catch(e) { return 'light'; } }
 function applyTheme(t) { document.documentElement.setAttribute('data-theme', t); }
-function useTheme() {
+/* Palette: 'autumn' (default for now) or 'default' (royal blue + gold). Each has a light and a dark appearance. */
+function getPalette() { try { return localStorage.getItem(PALETTE_KEY) === 'default' ? 'default' : 'autumn'; } catch(e) { return 'autumn'; } }
+function applyPalette(p) { document.documentElement.setAttribute('data-palette', p); }
+const PALETTES = [
+    { id:'autumn',  name:'Autumn',  desc:'Rust, amber and umber. High contrast.', swatches:['#9c3a0b', '#FFB81C', '#3b1d0c', '#f5ede0'] },
+    { id:'default', name:'Default', desc:'Pitt royal blue and gold.',             swatches:['#003594', '#FFB81C', '#00205B', '#f4f5f7'] },
+];
+function useAppearance() {
     const [theme, setThemeState] = useState(getTheme);
+    const [palette, setPaletteState] = useState(getPalette);
     const setTheme = (t) => { try { localStorage.setItem(THEME_KEY, t); } catch(e) {} applyTheme(t); setThemeState(t); };
-    useEffect(() => { applyTheme(theme); }, []);
-    return [theme, () => setTheme(theme === 'dark' ? 'light' : 'dark')];
+    const setPalette = (p) => { try { localStorage.setItem(PALETTE_KEY, p); } catch(e) {} applyPalette(p); setPaletteState(p); };
+    useEffect(() => {
+        applyTheme(theme); applyPalette(palette);
+        // keep several open tabs in sync
+        const onStorage = (e) => {
+            if (e.key !== THEME_KEY && e.key !== PALETTE_KEY) return;
+            const t = getTheme(), p = getPalette();
+            applyTheme(t); applyPalette(p); setThemeState(t); setPaletteState(p);
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, []);
+    return { theme, palette, setTheme, setPalette };
 }
 function isAuthed() { try { return localStorage.getItem(AUTH_KEY) === '1'; } catch(e) { return false; } }
 
@@ -623,7 +645,7 @@ function loadPhonebookContacts() {
 /* ══════════════════════════════════════════════════════════════════════
    SHELL — slim top bar, collapsible sidebar, persistent status bar
 ══════════════════════════════════════════════════════════════════════ */
-function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme }) {
+function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme, onOpenSettings, settingsOpen }) {
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
     return (
         <header className="topbar">
@@ -639,6 +661,9 @@ function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme }) {
                 <Icon name="search" size={17} />
                 <span className="topbar-launch-label">Quick Launch</span>
                 <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
+            </button>
+            <button className="topbar-settings" onClick={onOpenSettings} aria-expanded={settingsOpen} aria-haspopup="dialog" title="Settings">
+                <Icon name="gear" size={17} /><span>Settings</span>
             </button>
             <button className="icon-btn" onClick={onToggleTheme} aria-label="Toggle dark mode" title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}>
                 <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
@@ -890,11 +915,57 @@ function QuickLaunch({ open, onClose, data }) {
     );
 }
 
+function SettingsPanel({ open, onClose, appearance }) {
+    const { theme, palette, setTheme, setPalette } = appearance;
+    useEffect(() => {
+        if (!open) return;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [open]);
+    if (!open) return null;
+    return (
+        <>
+            <div className="settings-backdrop" onMouseDown={onClose} />
+            <div className="settings-panel" role="dialog" aria-label="Settings">
+                <div className="sp-head">
+                    <div className="sp-title">Settings</div>
+                    <button className="sp-close" onClick={onClose} aria-label="Close settings"><Icon name="x" size={18} /></button>
+                </div>
+                <div className="sp-section">
+                    <div className="sp-label">Theme</div>
+                    <div className="sp-themes">
+                        {PALETTES.map(p => (
+                            <button key={p.id} className={`sp-theme ${palette === p.id ? 'on' : ''}`} onClick={() => setPalette(p.id)} aria-pressed={palette === p.id}>
+                                <span className="sp-swatches">{p.swatches.map(c => <span key={c} style={{background:c}} />)}</span>
+                                <span className="sp-theme-name">{p.name}</span>
+                                <span className="sp-theme-desc">{p.desc}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                <div className="sp-section">
+                    <div className="sp-label">Appearance</div>
+                    <div className="sp-seg" role="group" aria-label="Appearance">
+                        <button className={theme === 'light' ? 'on' : ''} onClick={() => setTheme('light')} aria-pressed={theme === 'light'}><Icon name="sun" size={16} /> Light</button>
+                        <button className={theme === 'dark' ? 'on' : ''} onClick={() => setTheme('dark')} aria-pressed={theme === 'dark'}><Icon name="moon" size={16} /> Dark</button>
+                    </div>
+                </div>
+                <div className="sp-section" style={{paddingBottom:0}}>
+                    <div className="sp-label">Landing page</div>
+                    <a className="sp-link" href="landing"><Icon name="corner" size={17} /> Return to the landing page</a>
+                </div>
+            </div>
+        </>
+    );
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    SHELL + mountPage
 ══════════════════════════════════════════════════════════════════════ */
 function Shell({ page, title, desc, children, data }) {
-    const [theme, toggleTheme] = useTheme();
+    const appearance = useAppearance();
+    const [settingsOpen, setSettingsOpen] = useState(false);
     const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(SIDEBAR_KEY) === '1'; } catch(e) { return false; } });
     const [mobileOpen, setMobileOpen] = useState(false);
     const [qlOpen, setQlOpen] = useState(false);
@@ -945,7 +1016,8 @@ function Shell({ page, title, desc, children, data }) {
 
     return (
         <div className={`app ${effCollapsed ? 'sb-collapsed' : ''}`}>
-            <TopBar onToggleSidebar={toggleSidebar} onQuickLaunch={() => setQlOpen(true)} theme={theme} onToggleTheme={toggleTheme} />
+            <TopBar onToggleSidebar={toggleSidebar} onQuickLaunch={() => setQlOpen(true)} theme={appearance.theme} onToggleTheme={() => appearance.setTheme(appearance.theme === 'dark' ? 'light' : 'dark')}
+                    onOpenSettings={() => setSettingsOpen(o => !o)} settingsOpen={settingsOpen} />
             <Sidebar page={page} collapsed={effCollapsed} onToggleCollapsed={toggleCollapsed} mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
             <main className="main" id="main">
                 <div className="main-inner">
@@ -959,6 +1031,7 @@ function Shell({ page, title, desc, children, data }) {
                 </div>
             </main>
             <StatusBar data={data} />
+            <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} appearance={appearance} />
             <QuickLaunch open={qlOpen} onClose={() => setQlOpen(false)} data={data} />
         </div>
     );
@@ -972,7 +1045,7 @@ function PageRoot({ page, title, desc, render }) {
 /* Every authenticated page calls this once: mountPage({ page, title, desc, render }) */
 function mountPage(cfg) {
     if (!isAuthed()) { window.location.replace('landing'); return; }
-    applyTheme(getTheme());
+    applyTheme(getTheme()); applyPalette(getPalette());
     // Show clean URLs: /forms instead of /forms.html (GitHub Pages serves both)
     try {
         const p = window.location.pathname;
