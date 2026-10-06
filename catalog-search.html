@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSS Stockroom — Catalog Search</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; }
+
+        :root {
+            --royal:   #003594;
+            --gold:    #FFB81C;
+            --navy:    #00205B;
+            --sky:     #DBEEFF;
+            --bg:      #f4f5f7;
+            --surface: #ffffff;
+            --border:  #e2e4e8;
+            --text:    #1a1d23;
+            --muted:   #5a6072;
+            --sans:    'Roboto', Arial, sans-serif;
+            --mono:    'Roboto Mono', 'Courier New', monospace;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            font-family: var(--sans);
+            color: var(--text);
+            font-size: 14px;
+        }
+
+        #root { padding: 0; }
+
+        /* ── Header ── */
+        .header {
+            background: var(--royal);
+            border-radius: 0;
+            padding: 0;
+        }
+        .header-inner {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .header-title {
+            font-family: var(--sans);
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .header-gold-bar {
+            height: 3px;
+            background: var(--gold);
+        }
+
+        /* ── Search bar ── */
+        .search-wrap {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-top: none;
+            padding: 14px 16px;
+        }
+        .search-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .search-input {
+            flex: 1;
+            height: 38px;
+            padding: 0 12px;
+            border: 1.5px solid var(--border);
+            border-radius: 6px;
+            font-family: var(--sans);
+            font-size: 14px;
+            color: var(--text);
+            background: var(--bg);
+            outline: none;
+            transition: border-color 0.15s;
+        }
+        .search-input:focus { border-color: var(--royal); background: #fff; }
+        .search-input::placeholder { color: #aab; }
+
+        .btn-search {
+            height: 38px;
+            padding: 0 18px;
+            background: var(--royal);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-family: var(--sans);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s;
+        }
+        .btn-search:hover { background: var(--navy); }
+
+        .btn-clear {
+            height: 38px;
+            padding: 0 14px;
+            background: transparent;
+            color: var(--muted);
+            border: 1.5px solid var(--border);
+            border-radius: 6px;
+            font-family: var(--sans);
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-clear:hover { border-color: var(--royal); color: var(--royal); }
+
+        .search-hint {
+            margin-top: 7px;
+            font-size: 11.5px;
+            color: var(--muted);
+        }
+
+        /* ── Status bar ── */
+        .status-bar {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-top: none;
+            padding: 6px 16px;
+            font-size: 11.5px;
+            color: var(--muted);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: none;
+        }
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+        .dot-ok      { background: #00AD6E; }
+        .dot-loading { background: var(--gold); }
+        .dot-error   { background: #FF5B45; }
+
+        /* ── Results ── */
+        .results-wrap {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0;
+            overflow: hidden;
+        }
+
+        .results-count {
+            padding: 8px 16px;
+            font-size: 12px;
+            color: var(--muted);
+            border-bottom: 1px solid var(--border);
+            background: var(--bg);
+        }
+        .results-count strong { color: var(--text); }
+
+        .table-scroll { overflow-x: auto; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        thead th {
+            background: var(--navy);
+            color: #fff;
+            font-weight: 600;
+            font-size: 11px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            padding: 9px 12px;
+            text-align: left;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+        thead th:hover { background: var(--royal); }
+        thead th .sort-icon { margin-left: 4px; opacity: 0.6; font-size: 10px; }
+        thead th.sorted .sort-icon { opacity: 1; color: var(--gold); }
+
+        tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: var(--sky); }
+        tbody tr:nth-child(even) { background: #fafbfd; }
+        tbody tr:nth-child(even):hover { background: var(--sky); }
+
+        td { padding: 8px 12px; vertical-align: top; line-height: 1.4; }
+
+        .td-sku  { font-family: var(--mono); font-size: 12px; color: var(--royal); white-space: nowrap; }
+        .td-name { font-weight: 500; color: var(--text); min-width: 180px; }
+        .td-mfr  { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+        .td-uom  { white-space: nowrap; color: var(--muted); font-size: 12px; }
+        .td-vendor { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+        .tag-stock {
+            display: inline-block;
+            padding: 1px 7px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .tag-in    { background: #d4f5e5; color: #006b30; }
+        .tag-out   { background: #ffe0dc; color: #b03020; }
+        .tag-low   { background: #fff3cd; color: #7a5c00; }
+
+        /* ── Empty / loading states ── */
+        .state-box {
+            padding: 48px 20px;
+            text-align: center;
+            color: var(--muted);
+        }
+        .state-box .icon { font-size: 36px; margin-bottom: 10px; }
+        .state-box p { margin: 4px 0; font-size: 14px; }
+        .state-box .sub { font-size: 12px; opacity: 0.7; }
+
+        @media (max-width: 600px) {
+            #root { padding: 8px; }
+            .td-vendor, .td-mfr { display: none; }
+            .btn-search span { display: none; }
+        }
+
+        /* ── Notice modal ── */
+        .notice-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,32,91,0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 16px;
+        }
+        .notice-box {
+            background: #fff;
+            border-radius: 10px;
+            border-top: 4px solid var(--royal);
+            max-width: 460px;
+            width: 100%;
+            padding: 28px 28px 22px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+        .notice-box h3 {
+            margin: 0 0 12px 0;
+            font-family: var(--sans);
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--navy);
+        }
+        .notice-box p {
+            margin: 0 0 20px 0;
+            font-size: 13.5px;
+            line-height: 1.65;
+            color: var(--text);
+        }
+        .notice-box a { color: var(--royal); }
+        .notice-dismiss {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background: var(--royal);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-family: var(--sans);
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        .notice-dismiss:hover { background: var(--navy); }
+    </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    const EXCEL_URL        = 'https://dssstockroom.github.io/inventory-status-report.xlsx';
+    const STAFF_CATALOG_URL = 'https://dssstockroom.github.io/staff-catalog.xlsx';
+
+    function parseInventory(ab) {
+        const wb = XLSX.read(ab, { type: 'array', cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+        if (json.length < 2) return [];
+        const data = [];
+        for (let i = 1; i < json.length; i++) {
+            const r = json[i];
+            if (r.length >= 15 && r[4]) {
+                const item = {
+                    internalSKU:      String(r[4]  || '').trim(),
+                    manufacturerSKUs: [r[5],r[6],r[7],r[8]].map(x => String(x||'').trim()).filter(s => s),
+                    itemName:         String(r[13] || '').trim(),
+                    uom:              String(r[14] || '').trim(),
+                    altUom:           String(r[15] || '').trim(),
+                    convFactor:       String(r[16] || '').trim(),
+                    vendor:           String(r[12] || '').trim(),
+                    externalPrice:    String(r[26] || '').trim(),
+                    ourPrice:         String(r[27] || '').trim(),
+                    onHand:           String(r[23] || '').trim(),
+                    location:         String(r[2]  || '').trim(),
+                };
+                if (item.internalSKU && !item.internalSKU.toUpperCase().startsWith('Y')) data.push(item);
+            }
+        }
+        return data;
+    }
+
+    function highlight(text, query) {
+        if (!query || !text) return text;
+        const idx = text.toLowerCase().indexOf(query.toLowerCase());
+        if (idx === -1) return text;
+        return (
+            <span>
+                {text.slice(0, idx)}
+                <mark style={{background:'#FFE939', color:'inherit', padding:0}}>{text.slice(idx, idx + query.length)}</mark>
+                {text.slice(idx + query.length)}
+            </span>
+        );
+    }
+
+    function stockTag(item) {
+        const loc = (item.location || '').toUpperCase();
+        if (loc === 'SS' || loc.startsWith('SS ') || loc.startsWith('SS-')) {
+            return <span className="tag-stock" style={{background:'#e8e8f0', color:'#444488', fontStyle:'italic', fontWeight:500}}>Strategic Stockout</span>;
+        }
+        const n = parseFloat(item.onHand);
+        if (isNaN(n) || item.onHand === '') return null;
+        if (n <= 0)  return <span className="tag-stock tag-out">Out of Stock</span>;
+        if (n <= 3)  return <span className="tag-stock tag-low">Low Stock</span>;
+        return           <span className="tag-stock tag-in">In Stock</span>;
+    }
+
+    function SortIcon({ active, dir }) {
+        if (!active) return <span className="sort-icon">⇅</span>;
+        return <span className="sort-icon">{dir === 'asc' ? '↑' : '↓'}</span>;
+    }
+
+    function CatalogSearch() {
+        const [inventory, setInventory]   = useState([]);
+        const [status, setStatus]         = useState('loading');
+        const [lastModified, setLastModified] = useState(null);
+        const [staffNames, setStaffNames] = useState({});
+        const [query, setQuery]           = useState('');
+        const [submitted, setSubmitted]   = useState('');
+        const [sort, setSort]             = useState({ key: null, dir: 'asc' });
+        const [dismissed, setDismissed]   = useState(false);
+
+        useEffect(() => {
+            // Load staff catalog name lookup
+            fetch(STAFF_CATALOG_URL)
+                .then(r => r.arrayBuffer())
+                .then(ab => {
+                    const wb = XLSX.read(ab, { type: 'array', raw: false });
+                    const ws = wb.Sheets[wb.SheetNames[0]];
+                    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+                    const map = {};
+                    for (let i = 1; i < rows.length; i++) {
+                        const partNum = String(rows[i][0] || '').trim();
+                        const name    = String(rows[i][1] || '').trim();
+                        if (partNum && name) map[partNum.toUpperCase()] = name;
+                    }
+                    setStaffNames(map);
+                })
+                .catch(() => {}); // silently fall back to inventory names
+
+            // Load inventory
+            fetch(EXCEL_URL)
+                .then(r => {
+                    const lm = r.headers.get('Last-Modified');
+                    if (lm) setLastModified(new Date(lm));
+                    return r.arrayBuffer();
+                })
+                .then(ab => {
+                    const data = parseInventory(ab);
+                    setInventory(data);
+                    setStatus('ok');
+                })
+                .catch(() => setStatus('error'));
+        }, []);
+
+        const handleSearch = (e) => {
+            e.preventDefault();
+            setSubmitted(query.trim());
+        };
+
+        const handleClear = () => {
+            setQuery('');
+            setSubmitted('');
+            setSort({ key: null, dir: 'asc' });
+        };
+
+        const handleSort = (key) => {
+            setSort(prev =>
+                prev.key === key
+                    ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                    : { key, dir: 'asc' }
+            );
+        };
+
+        const enrichedInventory = useMemo(() => {
+            if (!inventory.length) return inventory;
+            return inventory.map(item => {
+                const fullName = [item.internalSKU, ...item.manufacturerSKUs]
+                    .map(s => staffNames[s.toUpperCase()])
+                    .find(n => n) || null;
+                return fullName ? { ...item, fullName } : item;
+            });
+        }, [inventory, staffNames]);
+
+        const results = useMemo(() => {
+            if (!submitted) return [];
+            const q = submitted.toLowerCase();
+            const filtered = enrichedInventory.filter(item =>
+                item.itemName.toLowerCase().includes(q) ||
+                (item.fullName && item.fullName.toLowerCase().includes(q)) ||
+                item.internalSKU.toLowerCase().includes(q) ||
+                item.manufacturerSKUs.some(s => s.toLowerCase().includes(q)) ||
+                item.vendor.toLowerCase().includes(q) ||
+                item.uom.toLowerCase().includes(q)
+            );
+            if (!sort.key) return filtered;
+            return [...filtered].sort((a, b) => {
+                let av = a[sort.key] || '';
+                let bv = b[sort.key] || '';
+                if (['ourPrice','externalPrice','onHand'].includes(sort.key)) {
+                    av = parseFloat(av) || 0;
+                    bv = parseFloat(bv) || 0;
+                    return sort.dir === 'asc' ? av - bv : bv - av;
+                }
+                return sort.dir === 'asc'
+                    ? String(av).localeCompare(String(bv))
+                    : String(bv).localeCompare(String(av));
+            });
+        }, [submitted, enrichedInventory, sort]);
+
+        const cols = [
+            { key: 'internalSKU',      label: 'SKU' },
+            { key: 'itemName',         label: 'Description' },
+            { key: 'manufacturerSKUs', label: 'Mfr. SKU', noSort: true },
+            { key: 'uom',              label: 'Unit' },
+            { key: 'vendor',           label: 'Vendor' },
+            { key: 'onHand',           label: 'Availability' },
+        ];
+
+        return (
+            <div>
+                {/* Notice modal */}
+                {!dismissed && (
+                    <div className="notice-overlay">
+                        <div className="notice-box">
+                            <h3>📋 Before You Search</h3>
+                            <p>
+                                Due to character limits in our inventory system, most items use abbreviated names and descriptions.
+                                For best results, <strong>search by item number</strong> (e.g. internal SKU or manufacturer part number) where possible.
+                                Inventory levels shown are estimates and may not reflect real-time availability.
+                                If you cannot find the item you are looking for, contact us at <a href="mailto:stockroom@pitt.edu">stockroom@pitt.edu</a>.
+                            </p>
+                            <button className="notice-dismiss" onClick={() => setDismissed(true)}>
+                                Got it
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {/* Header */}
+                <div className="header">
+                    <div className="header-inner">
+                        <div className="header-title">Catalog Search</div>
+                    </div>
+                    <div className="header-gold-bar"></div>
+                </div>
+
+                {/* Search bar */}
+                <div className="search-wrap">
+                    <form onSubmit={handleSearch}>
+                        <div className="search-row">
+                            <input
+                                className="search-input"
+                                type="text"
+                                placeholder="Search by item name, SKU, manufacturer part number, or vendor…"
+                                value={query}
+                                onChange={e => setQuery(e.target.value)}
+                                autoComplete="off"
+                                autoFocus
+                            />
+                            <button type="submit" className="btn-search">
+                                <span>🔍 </span>Search
+                            </button>
+                            {submitted && (
+                                <button type="button" className="btn-clear" onClick={handleClear}>Clear</button>
+                            )}
+                        </div>
+                        <div className="search-hint">
+                            Search is case-insensitive and matches any part of the field.
+                        </div>
+                    </form>
+                </div>
+
+                {/* Status bar */}
+                <div className="status-bar">
+                    {status === 'loading' && <><span className="status-dot dot-loading"></span>Loading catalog…</>}
+                    {status === 'ok'      && <><span className="status-dot dot-ok"></span>{inventory.length.toLocaleString()} items loaded{lastModified && <span style={{marginLeft:'12px', paddingLeft:'12px', borderLeft:'1px solid var(--border)'}}>Last updated: {lastModified.toLocaleDateString()} {lastModified.toLocaleTimeString()}</span>}</>}
+                    {status === 'error'   && <><span className="status-dot dot-error"></span>Could not load catalog. Please try again later.</>}
+                </div>
+
+                {/* Results */}
+                <div className="results-wrap">
+                    {!submitted && status === 'ok' && (
+                        <div className="state-box">
+                            <div className="icon">🔬</div>
+                            <p>Enter a search term above to browse the catalog.</p>
+                            <p className="sub">You can search by item name, SKU, manufacturer part number, or vendor.</p>
+                        </div>
+                    )}
+
+                    {submitted && results.length === 0 && (
+                        <div className="state-box">
+                            <div className="icon">🔍</div>
+                            <p>No items found for <strong>"{submitted}"</strong>.</p>
+                            <p className="sub">Try a different term, or contact the Stockroom directly.</p>
+                        </div>
+                    )}
+
+                    {submitted && results.length > 0 && (
+                        <>
+                            <div className="results-count">
+                                Showing <strong>{results.length.toLocaleString()}</strong> result{results.length !== 1 ? 's' : ''} for <strong>"{submitted}"</strong>
+                            </div>
+                            <div className="table-scroll">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            {cols.map(c => (
+                                                <th
+                                                    key={c.key}
+                                                    className={sort.key === c.key ? 'sorted' : ''}
+                                                    onClick={() => !c.noSort && handleSort(c.key)}
+                                                    style={c.noSort ? {cursor:'default'} : {}}
+                                                >
+                                                    {c.label}
+                                                    {!c.noSort && <SortIcon active={sort.key === c.key} dir={sort.dir} />}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {results.map((item, i) => (
+                                            <tr key={item.internalSKU + i}>
+                                                <td className="td-sku">{highlight(item.internalSKU, submitted)}</td>
+                                                <td className="td-name">{highlight(item.fullName || item.itemName, submitted)}</td>
+                                                <td className="td-mfr">
+                                                    {item.manufacturerSKUs.map((s, j) => (
+                                                        <span key={j} style={{display:'block'}}>{highlight(s, submitted)}</span>
+                                                    ))}
+                                                </td>
+                                                <td className="td-uom">
+                                                    {item.uom}
+                                                    {item.altUom && item.convFactor && (
+                                                        <span style={{display:'block', fontSize:'11px', color:'#999'}}>
+                                                            {item.convFactor}×&nbsp;{item.altUom}
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="td-vendor">{highlight(item.vendor, submitted)}</td>
+                                                <td>{stockTag(item)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    ReactDOM.render(<CatalogSearch />, document.getElementById('root'));
+</script>
+</body>
+</html>
