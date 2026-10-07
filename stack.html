@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Help Pudgie Load the Truck — DSS Stockroom Toolbox</title>
+    <title>Stack — DSS Stockroom Toolbox</title>
     <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
     <script>
         /* Auth guard + theme, run before first paint */
@@ -37,6 +37,7 @@
     const GameFrame = React.memo(function GameFrame({ src, title }) {
         const ref = useRef(null);
         const [h, setH] = useState(640);
+        const [missing, setMissing] = useState(false);
         useEffect(() => {
             const f = ref.current; let ro = null;
             const fit = () => {
@@ -46,6 +47,7 @@
                 } catch(e) {}
             };
             const onLoad = () => {
+                try { if (!f.contentDocument.getElementById('app')) { setMissing(true); return; } } catch(e) {}
                 fit();
                 try { ro = new ResizeObserver(fit); ro.observe(f.contentDocument.getElementById('app')); f.contentWindow.focus(); } catch(e) {}
             };
@@ -55,12 +57,13 @@
         }, []);
         return (
             <div className="bk-wrap">
-                <iframe ref={ref} className="bk-frame" src={src} title={title} style={{ height: h }} />
+                <iframe ref={ref} className="bk-frame" src={src} title={title} style={missing ? { display:'none' } : { height: h }} />
+                {missing && <div className="bk-missing">The game file <strong>{src.split('?')[0]}</strong> was not found. Upload it to the site root next to <code>{window.location.pathname.replace(/^\//, '') || 'index'}.html</code>.</div>}
             </div>
         );
     });
 
-    mountPage({ page: 'stack', title: null, desc: null, render: () => <GameFrame src="games/stockroom-stack.html?embed" title="Help Pudgie Load the Truck" /> });
+    mountPage({ page: 'stack', title: null, desc: null, render: () => <GameFrame src="stockroom-stack.html?embed" title="Stack" /> });
 
     </script>
 </body>

@@ -125,33 +125,49 @@
             }
             resize(); window.addEventListener('resize', resize);
 
-            /* Focus point: the pulse ring and a lens bulge follow the cursor (eased), and drift back to centre when it leaves */
-            var tx = null, ty = null, fx = window.innerWidth / 2, fy = window.innerHeight / 2;
+            /* Cursor wave: moving the cursor sends a rippling wave through the grid in the direction of travel
+               (crests slide along the movement direction, strongest around the cursor and trailing behind it).
+               It builds with speed and fades out when the cursor stops. */
+            var tx = null, ty = null, ptx = null, pty = null, fx = window.innerWidth / 2, fy = window.innerHeight / 2;
+            var svx = 0, svy = 0, ux = 1, uy = 0, amp = 0;           // smoothed velocity, wave direction (unit), wave strength 0..1
             function aim(e) { var p = e.touches ? e.touches[0] : e; if (p) { tx = p.clientX; ty = p.clientY; } }
             window.addEventListener('pointermove', aim, { passive: true });
             window.addEventListener('touchmove', aim, { passive: true });
+            window.addEventListener('touchstart', aim, { passive: true });
             document.addEventListener('pointerleave', function () { tx = ty = null; });
             window.addEventListener('blur', function () { tx = ty = null; });
+            cv.__wave = function () { return { ux: ux, uy: uy, amp: amp }; };      // (inspection hook; harmless)
 
             function warp(x, y, t) {
                 var cx = W / 2, cy = H / 2, dx = x - cx, dy = y - cy;
-                var fdx = x - fx, fdy = y - fy, d = Math.hypot(fdx, fdy) || 1;     // distance from the focus point
                 var nx = x / W, ny = y / H;
                 var a = Math.sin(nx * 5.2 + t * 0.55) + Math.cos(ny * 4.1 - t * 0.42);
                 var b = Math.sin((nx + ny) * 6.3 - t * 0.78);
-                var reach = Math.max(W, H) * 0.62;
-                var ring = Math.sin(d * 0.017 - t * 1.5) * Math.exp(-d / reach);      // outward pulse
+                // faint ambient pulse from the centre keeps the page alive when nothing is moving
+                var dc = Math.hypot(dx, dy) || 1, reach = Math.max(W, H) * 0.62;
+                var amb = Math.sin(dc * 0.017 - t * 1.5) * Math.exp(-dc / reach) * 0.5;
                 var sx = 1 + 0.10 * AMP * Math.sin(t * 0.43), sy = 1 + 0.10 * AMP * Math.cos(t * 0.37);  // stretch
-                var s = Math.min(1, d / 90);                                              // no push-direction singularity at the focus itself
-                var mag = 0.32 * Math.exp(-(d * d) / (2 * 170 * 170));                 // magnifying-lens bulge (grows with distance, then fades)
-                var ox = (a * 16 + b * 10 + (fdx / d) * ring * 34 * s) * AMP + fdx * mag * (calm ? 0.7 : 1);
-                var oy = (b * 16 + a * 8 + (fdy / d) * ring * 34 * s) * AMP + fdy * mag * (calm ? 0.7 : 1);
-                return { x: cx + dx * sx + ox, y: cy + dy * sy + oy, ring: ring, w: Math.abs(a + b) / 4 };
+                var ox = (a * 16 + b * 10 + (dx / dc) * amb * 34) * AMP;
+                var oy = (b * 16 + a * 8 + (dy / dc) * amb * 34) * AMP;
+                // directional wave
+                var wv = 0;
+                if (amp > 0.002) {
+                    var rx = x - fx, ry = y - fy, along = rx * ux + ry * uy, perp = -rx * uy + ry * ux;
+                    var sa = along > 0 ? 380 : 600;                                   // longer wake behind the cursor than ahead of it
+                    var env = Math.exp(-(along * along) / (2 * sa * sa) - (perp * perp) / (2 * 300 * 300));
+                    var ph = along * 0.040 - t * 11;                                  // crests travel along +direction
+                    wv = Math.sin(ph) * env * amp;
+                    var wc = Math.cos(ph) * env * amp, k = calm ? 0.65 : 1;
+                    ox += (ux * wv * 13 - uy * wc * 24) * k;                          // small push along travel (kept < 1/wavenumber so lines never fold) + sideways swell
+                    oy += (uy * wv * 13 + ux * wc * 24) * k;
+                }
+                return { x: cx + dx * sx + ox, y: cy + dy * sy + oy, ring: Math.max(amb, wv), w: Math.abs(a + b) / 4 };
             }
+
             function line(vertical, pos, t) {
-                var steps = Math.ceil((vertical ? H : W) / 22) + 2, prev = null;
+                var steps = Math.ceil((vertical ? H : W) / 13) + 2, prev = null;
                 for (var i = -1; i <= steps; i++) {
-                    var u = i * 22;
+                    var u = i * 13;
                     var p = warp(vertical ? pos : u, vertical ? u : pos, t);
                     if (prev) {
                         var glow = Math.max(0, (p.ring + prev.ring) / 2 - 0.28) * 2.2;     // 0..~1 on the pulse crest
@@ -198,6 +214,15 @@
                 var t = ms / 1000 * SPEED * 1.35, now = ms / 1000, dt = Math.min(0.1, now - lastMs); lastMs = now;
                 var gx = tx === null ? W / 2 : tx, gy = ty === null ? H / 2 : ty, k = 1 - Math.pow(0.002, dt);   // frame-rate independent easing
                 fx += (gx - fx) * k; fy += (gy - fy) * k;
+                // cursor velocity -> wave direction and strength
+                if (tx !== null) {
+                    if (ptx !== null && dt > 0) { svx += ((tx - ptx) / dt - svx) * 0.2; svy += ((ty - pty) / dt - svy) * 0.2; }
+                    ptx = tx; pty = ty;
+                } else { svx *= 0.9; svy *= 0.9; ptx = pty = null; }
+                var sp = Math.hypot(svx, svy);
+                if (sp > 60) { ux += (svx / sp - ux) * 0.12; uy += (svy / sp - uy) * 0.12; var um = Math.hypot(ux, uy) || 1; ux /= um; uy /= um; }
+                var target = Math.min(1, sp / 650);
+                amp += (target - amp) * (target > amp ? 0.18 : 0.025);
                 ctx.clearRect(0, 0, W, H);
                 // ~8 new flashes per second (fewer for reduced-motion), capped
                 var rate = (calm ? 4 : 8) * dt;

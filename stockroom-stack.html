@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-<title>Help Pudgie Load the Truck</title>
+<title>Stack</title>
 <script>
 /* Theme bootstrap: follows the Toolbox palette + appearance (same localStorage keys), and stays in sync via the storage event */
 (function () {
@@ -53,7 +53,7 @@
   #pudgie{width:72px;height:72px;flex:none;image-rendering:pixelated;background:var(--s-bg);border:3px solid var(--line)}
   #pudgie.hop{animation:hop .4s steps(3) 1}
   @keyframes hop{0%{transform:translateY(0)}35%{transform:translateY(-8px)}70%{transform:translateY(-3px)}100%{transform:translateY(0)}}
-  h1{margin:0;font-size:clamp(13px,3.8vw,18px);line-height:1.35;color:var(--accent);
+  h1{margin:0;font-size:clamp(22px,6.4vw,32px);line-height:1.2;color:var(--accent);
      text-shadow:3px 3px 0 var(--edge);letter-spacing:0;font-weight:400}
   header p{margin:8px 0 0;font-size:7px;color:var(--muted);line-height:1.8}
 
@@ -133,8 +133,8 @@
   <header>
     <canvas id="pudgie" width="24" height="24" aria-label="Pudgie"></canvas>
     <div>
-      <h1>HELP PUDGIE LOAD THE TRUCK</h1>
-      <p>Pudgie drives the deliveries. Fill a row edge to edge and it goes on the truck.</p>
+      <h1>STACK</h1>
+      <p>Help Pudgie load the truck. Fill a row edge to edge and it goes on the truck.</p>
     </div>
   </header>
 
@@ -254,26 +254,101 @@ const PIECES = [
   { m:[[0,0,1],[1,1,1],[0,0,0]],                  box:{ base:'#EBDFC2', hi:'#F7EFD8', lo:'#CDBE9C', edge:'#6E6040', tape:'#D9382F', accent:'#2A7BEB' } }  // L cream
 ];
 
-const tileCache = {};
-// a plain cardboard box seen from above: outline, bevel, one strip of tape
-function getTile(i, s){
-  const key = i + ':' + s;
-  if (tileCache[key]) return tileCache[key];
-  const b = PIECES[i].box;
-  const c = document.createElement('canvas'); c.width = c.height = s;
-  const g = c.getContext('2d');
-  const f = s / 28, S = v => Math.max(1, Math.round(v * f));
-  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
-  const e = S(1), inner = s - 2 * e;
-  R(b.edge, 0, 0, s, s);
-  R(b.base, e, e, inner, inner);
-  R(b.hi, e, e, inner, e); R(b.hi, e, e, e, inner);
-  R(b.lo, e, s - 2 * e, inner, e); R(b.lo, s - 2 * e, e, e, inner);
-  const tw = S(8), tx = Math.round((s - tw) / 2);
-  R(b.tape, tx, e, tw, inner);
-  R('rgba(0,0,0,0.16)', tx, e, 1, inner); R('rgba(0,0,0,0.16)', tx + tw - 1, e, 1, inner);
-  R('rgba(255,255,255,0.3)', tx + 1, e, 1, inner);
-  return tileCache[key] = c;
+/* ============ PACKAGES ============
+   Each piece is ONE cardboard package: a single outline around the whole shape, one strip of tape and one shipping
+   label. Tape and label are stored as geometry in the piece's matrix space and are rotated together with it. */
+const PK = [
+  { strips:[[0,1.5,4,1.5]], label:[0.9,1.5,0.7,0.46] },    // I
+  { strips:[[1,0,1,2]],     label:[0.5,0.55,0.62,0.44] },  // O
+  { strips:[[0,1.5,3,1.5]], label:[1.5,0.5,0.62,0.44] },   // T
+  { strips:[[1.5,0,1.5,2]], label:[2.5,0.5,0.62,0.44] },   // S
+  { strips:[[1.5,0,1.5,2]], label:[0.5,0.5,0.62,0.44] },   // Z
+  { strips:[[0,1.5,3,1.5]], label:[0.5,0.5,0.62,0.44] },   // J
+  { strips:[[0,1.5,3,1.5]], label:[2.5,0.5,0.62,0.44] }    // L
+];
+const clonePk = t => ({ strips: PK[t].strips.map(s => s.slice()), label: PK[t].label.slice() });
+// same maths as rotMatrix: clockwise (x,y) -> (n-y, x), counter-clockwise (x,y) -> (y, n-x)
+function rotPk(pk, dirn, n){
+  const rp = (x, y) => dirn > 0 ? [n - y, x] : [y, n - x];
+  const [cx, cy, w, h] = pk.label, c = rp(cx, cy);
+  return {
+    strips: pk.strips.map(([x0, y0, x1, y1]) => { const a = rp(x0, y0), b = rp(x1, y1); return [a[0], a[1], b[0], b[1]]; }),
+    label: [c[0], c[1], h, w]
+  };
+}
+let pkgSeq = 0;
+
+// Draw one package. cells: [[x,y]...] in target cell units; pk: tape/label in local units; (ox,oy): where local (0,0) sits in target units
+function drawPkg(g, cells, box, pk, ox, oy, s, alpha = 1){
+  const set = new Set(cells.map(c => c[0] + ',' + c[1])), has = (x, y) => set.has(x + ',' + y);
+  const e = Math.max(1, Math.round(s / 14)), R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); };
+  g.save(); g.globalAlpha = alpha;
+  cells.forEach(([x, y]) => R(box.base, x * s, y * s, s, s));
+  cells.forEach(([x, y]) => {                                   // outline + bevel only where the package ends
+    const px = x * s, py = y * s, T = !has(x, y - 1), B = !has(x, y + 1), L = !has(x - 1, y), Rt = !has(x + 1, y);
+    if (T){ R(box.edge, px, py, s, e); R(box.hi, px + (L ? e : 0), py + e, s - (L ? e : 0) - (Rt ? e : 0), e); }
+    if (B){ R(box.edge, px, py + s - e, s, e); R(box.lo, px + (L ? e : 0), py + s - 2 * e, s - (L ? e : 0) - (Rt ? e : 0), e); }
+    if (L){ R(box.edge, px, py, e, s); R(box.hi, px + e, py + (T ? e : 0), e, s - (T ? e : 0) - (B ? e : 0)); }
+    if (Rt){ R(box.edge, px + s - e, py, e, s); R(box.lo, px + s - 2 * e, py + (T ? e : 0), e, s - (T ? e : 0) - (B ? e : 0)); }
+    if (!T && !L && !has(x - 1, y - 1)) R(box.edge, px, py, e, e);
+    if (!T && !Rt && !has(x + 1, y - 1)) R(box.edge, px + s - e, py, e, e);
+    if (!B && !L && !has(x - 1, y + 1)) R(box.edge, px, py + s - e, e, e);
+    if (!B && !Rt && !has(x + 1, y + 1)) R(box.edge, px + s - e, py + s - e, e, e);
+  });
+  g.beginPath();                                                // tape and label stay inside the outline
+  cells.forEach(([x, y]) => {
+    const L = !has(x - 1, y), Rt = !has(x + 1, y), T = !has(x, y - 1), B = !has(x, y + 1);
+    g.rect(x * s + (L ? e : 0), y * s + (T ? e : 0), s - (L ? e : 0) - (Rt ? e : 0), s - (T ? e : 0) - (B ? e : 0));
+  });
+  g.clip();
+  const tw = Math.max(3, Math.round(s * 0.3));
+  pk.strips.forEach(([x0, y0, x1, y1]) => {
+    const ax = (ox + Math.min(x0, x1)) * s, ay = (oy + Math.min(y0, y1)) * s, len = (Math.abs(x1 - x0) + Math.abs(y1 - y0)) * s;
+    if (Math.abs(y1 - y0) < 1e-6){                              // horizontal strip
+      const ty = Math.round(ay - tw / 2);
+      R(box.tape, ax, ty, len, tw); R('rgba(0,0,0,0.18)', ax, ty, len, 1); R('rgba(0,0,0,0.18)', ax, ty + tw - 1, len, 1); R('rgba(255,255,255,0.28)', ax, ty + 1, len, 1);
+    } else {                                                    // vertical strip
+      const tx = Math.round(ax - tw / 2);
+      R(box.tape, tx, ay, tw, len); R('rgba(0,0,0,0.18)', tx, ay, 1, len); R('rgba(0,0,0,0.18)', tx + tw - 1, ay, 1, len); R('rgba(255,255,255,0.28)', tx + 1, ay, 1, len);
+    }
+  });
+  const [lcx, lcy, lw, lh] = pk.label, lx = Math.round((ox + lcx - lw / 2) * s), ly = Math.round((oy + lcy - lh / 2) * s), lwp = Math.round(lw * s), lhp = Math.round(lh * s);
+  R('rgba(0,0,0,0.5)', lx, ly, lwp, lhp); R('#F4F3EA', lx + 1, ly + 1, lwp - 2, lhp - 2);
+  const long = lwp >= lhp;                                      // text lines run along the label's long side
+  for (let i = 1; i <= 2; i++){
+    if (long) R('#6C6A60', lx + 2, ly + Math.round(lhp * i / 3), lwp - 4, 1);
+    else      R('#6C6A60', lx + Math.round(lwp * i / 3), ly + 2, 1, lhp - 4);
+  }
+  g.restore();
+}
+// the landing spot: one outline around the whole shape
+function drawGhost(g, cells, col, s){
+  const set = new Set(cells.map(c => c[0] + ',' + c[1])), has = (x, y) => set.has(x + ',' + y);
+  g.save(); g.fillStyle = col; g.globalAlpha = 0.12; cells.forEach(([x, y]) => g.fillRect(x * s, y * s, s, s));
+  g.globalAlpha = 0.6; g.strokeStyle = col; g.lineWidth = 2; g.beginPath();
+  cells.forEach(([x, y]) => {
+    const px = x * s, py = y * s;
+    if (!has(x, y - 1)){ g.moveTo(px, py + 1); g.lineTo(px + s, py + 1); }
+    if (!has(x, y + 1)){ g.moveTo(px, py + s - 1); g.lineTo(px + s, py + s - 1); }
+    if (!has(x - 1, y)){ g.moveTo(px + 1, py); g.lineTo(px + 1, py + s); }
+    if (!has(x + 1, y)){ g.moveTo(px + s - 1, py); g.lineTo(px + s - 1, py + s); }
+  });
+  g.stroke(); g.restore();
+}
+function drawBoard(){
+  const groups = new Map();
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++){
+    const c = board[y] && board[y][x]; if (!c) continue;
+    const key = c.id + ':' + (x - c.lx) + ',' + (y - c.ly);    // pieces split by a cleared row become separate fragments
+    let gr = groups.get(key); if (!gr){ gr = { c, cells: [], ox: x - c.lx, oy: y - c.ly }; groups.set(key, gr); }
+    gr.cells.push([x, y]);
+  }
+  groups.forEach(gr => drawPkg(ctx, gr.cells, PIECES[gr.c.t].box, gr.c.pk, gr.ox, gr.oy, CELL));
+}
+function curCells(){
+  const out = [];
+  for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++) if (cur.m[cy][cx]) out.push([cur.x + cx, cur.y + cy]);
+  return out;
 }
 
 const floor = document.createElement('canvas'); floor.width = COLS * CELL; floor.height = ROWS * CELL;
@@ -374,7 +449,7 @@ function showDest(d){
 
 function spawn(item){
   const m = PIECES[item.t].m.map(r => r.slice());
-  cur = { t: item.t, d: item.d, m, r: 0, x: Math.floor((COLS - m.length) / 2), y: item.t === 0 ? -1 : 0 };
+  cur = { t: item.t, d: item.d, m, pk: clonePk(item.t), r: 0, x: Math.floor((COLS - m.length) / 2), y: item.t === 0 ? -1 : 0 };
   dropT = 0; lockT = 0; resets = 0; lowest = cur.y;
   showDest(cur.d);
   if (collide(cur.m, cur.x, cur.y)) gameOver();
@@ -407,7 +482,7 @@ function rotate(dirn){
   const table = cur.t === 0 ? KICK_I : KICK_JLSTZ;
   for (const [dx, dy] of table['' + cur.r + nr]){
     if (!collide(nm, cur.x + dx, cur.y - dy)){
-      cur.m = nm; cur.r = nr; cur.x += dx; cur.y -= dy; touched(); sfx.rotate(); return;
+      cur.m = nm; cur.pk = rotPk(cur.pk, dirn, nm.length); cur.r = nr; cur.x += dx; cur.y -= dy; touched(); sfx.rotate(); return;
     }
   }
 }
@@ -435,11 +510,12 @@ function holdPiece(){
 }
 
 function lockPiece(){
+  const pid = ++pkgSeq;
   for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
     if (!cur.m[cy][cx]) continue;
     const bx = cur.x + cx, by = cur.y + cy;
     if (by < 0) return gameOver();
-    board[by][bx] = { t: cur.t, d: cur.d };
+    board[by][bx] = { t: cur.t, d: cur.d, id: pid, pk: cur.pk, lx: cx, ly: cy };
   }
   sfx.lock();
   const full = [];
@@ -565,39 +641,26 @@ function update(dt){
 
 /* ============ DRAW ============ */
 function drawMini(g, t, cx, cy, s, alpha = 1){
-  const m = PIECES[t].m; let x0 = 9, x1 = -1, y0 = 9, y1 = -1;
+  const m = PIECES[t].m; let x0 = 9, x1 = -1, y0 = 9, y1 = -1; const cells = [];
   for (let y = 0; y < m.length; y++) for (let x = 0; x < m.length; x++) if (m[y][x]){
-    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); cells.push([x, y]);
   }
   const ox = Math.round(cx - (x1 - x0 + 1) * s / 2), oy = Math.round(cy - (y1 - y0 + 1) * s / 2);
-  g.globalAlpha = alpha;
-  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (m[y][x])
-    g.drawImage(getTile(t, s), ox + (x - x0) * s, oy + (y - y0) * s);
-  g.globalAlpha = 1;
+  g.save(); g.translate(ox - x0 * s, oy - y0 * s);
+  drawPkg(g, cells, PIECES[t].box, clonePk(t), 0, 0, s, alpha);
+  g.restore();
 }
 function draw(){
   ctx.drawImage(floor, 0, 0);
-  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++){
-    const c = board[y] && board[y][x];
-    if (c) ctx.drawImage(getTile(c.t, CELL), x * CELL, y * CELL);
-  }
+  drawBoard();
   if (mode === 'clearing'){
-    ctx.fillStyle = (Math.floor((CLEAR_MS - clearT) / 65) % 2) ? 'rgba(255,255,255,.85)' : TH.flash;
+    ctx.fillStyle = (Math.floor((CLEAR_MS - clearT) / 65) % 2) ? 'rgba(255,255,255,.85)' : 'rgba(0,173,110,.7)';
     clearRows.forEach(y => ctx.fillRect(0, y * CELL, COLS * CELL, CELL));
   }
   if (cur){
-    const col = PIECES[cur.t].box.base, gy = ghostY();
-    for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
-      if (!cur.m[cy][cx] || gy + cy < 0) continue;
-      const gx = (cur.x + cx) * CELL, gyy = (gy + cy) * CELL;
-      ctx.fillStyle = col; ctx.globalAlpha = 0.12; ctx.fillRect(gx, gyy, CELL, CELL);
-      ctx.globalAlpha = 0.55; ctx.strokeStyle = col; ctx.lineWidth = 2;
-      ctx.strokeRect(gx + 1, gyy + 1, CELL - 2, CELL - 2); ctx.globalAlpha = 1;
-    }
-    for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
-      if (!cur.m[cy][cx] || cur.y + cy < 0) continue;
-      ctx.drawImage(getTile(cur.t, CELL), (cur.x + cx) * CELL, (cur.y + cy) * CELL);
-    }
+    const gy = ghostY(), cells = curCells();
+    drawGhost(ctx, cells.map(([x, y]) => [x, y + (gy - cur.y)]), PIECES[cur.t].box.base, CELL);
+    drawPkg(ctx, cells, PIECES[cur.t].box, cur.pk, cur.x, cur.y, CELL);
   }
   holdCtx.clearRect(0, 0, 84, 52); nextCtx.clearRect(0, 0, 84, 156);
   if (hold) drawMini(holdCtx, hold.t, 42, 26, 16, canHold ? 1 : 0.4);
@@ -617,8 +680,8 @@ requestAnimationFrame(frame);
 function showStart(){
   mode = 'select'; cur = null; hold = null; queue = []; board = newBoard();
   overlay.innerHTML = `
-    <h2>HELP PUDGIE<br>LOAD THE TRUCK</h2>
-    <p>Every box has a stop on the route.<br>Fill a row to get it on the truck.</p>
+    <h2>STACK</h2>
+    <p>Help Pudgie load the truck.<br>Every box has a stop on the route.<br>Fill a row to get it on the truck.</p>
     <button class="btn" id="go">START LOADING</button>
     <p>Boxes come faster every 10 rows.</p>`;
   overlay.classList.remove('hidden');

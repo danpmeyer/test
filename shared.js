@@ -295,7 +295,7 @@ const ALL_TOOLS = [...TOOLS, INFO_TOOL];
 /* Breakroom: retro games, each its own page (the game itself runs in games/<id>.html inside the shell) */
 const BREAKROOM = [
     { id:'snake', name:'Stockroom Snake',            label:'Snake',          href:'snake', icon:'snake',  desc:'Pick up every item on the shelf. Don\'t hit the walls.', keywords:'game arcade play retro break' },
-    { id:'stack', name:'Help Pudgie Load the Truck', label:'Load the Truck', href:'stack', icon:'blocks', desc:'Falling boxes, one truck. A block-stacking puzzle.',        keywords:'game arcade play retro tetris break pudgie' },
+    { id:'stack', name:'Stack', label:'Stack', href:'stack', icon:'blocks', desc:'Help Pudgie load the truck. A block-stacking puzzle.', keywords:'game arcade play retro tetris break pudgie load truck boxes' },
 ];
 
 /* ── Information section: categories and articles ──────────────────────
@@ -741,16 +741,15 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                         </div>
                     )}
                 </div>
+                <div className="sidebar-breakroom nav-section nav-tiles">
+                    <div className="nav-section-title">Breakroom</div>
+                    {BREAKROOM.map(g => (
+                        <a key={g.id} href={g.href} className={`nav-item ${page === g.id ? 'active' : ''}`} title={collapsed ? g.name : undefined}>
+                            <Icon name={g.icon} /><span className="nav-label">{g.label}</span>
+                        </a>
+                    ))}
+                </div>
             </nav>
-
-            <div className="sidebar-breakroom nav-section nav-tiles">
-                <div className="nav-section-title">Breakroom</div>
-                {BREAKROOM.map(g => (
-                    <a key={g.id} href={g.href} className={`nav-item ${page === g.id ? 'active' : ''}`} title={collapsed ? g.name : undefined}>
-                        <Icon name={g.icon} /><span className="nav-label">{g.label}</span>
-                    </a>
-                ))}
-            </div>
 
             <button className="sidebar-collapse" onClick={onToggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
