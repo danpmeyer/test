@@ -741,7 +741,7 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                         </div>
                     )}
                 </div>
-                <div className="sidebar-breakroom nav-section nav-tiles">
+                <div className="nav-section nav-tiles">
                     <div className="nav-section-title">Breakroom</div>
                     {BREAKROOM.map(g => (
                         <a key={g.id} href={g.href} className={`nav-item ${page === g.id ? 'active' : ''}`} title={collapsed ? g.name : undefined}>
