@@ -362,7 +362,7 @@
             cv.__sprites = SPRITES;                                          // (inspection hook; harmless)
 
             function make(spreadY) {
-                var z = rnd(.55, 1.25), size = rnd(15, 33) * z, ki = weights[Math.floor(Math.random() * weights.length)];
+                var z = rnd(.85, 1.25), size = rnd(20, 36) * z * (W < 700 ? 0.72 : 1), ki = weights[Math.floor(Math.random() * weights.length)];
                 return {
                     kind: ki, col: Math.floor(Math.random() * PALETTE.length), k: KINDS[ki].k,
                     z: z, size: size, x: rnd(0, W), y: spreadY ? rnd(-40, H) : -size * 1.6,
@@ -374,7 +374,7 @@
                 dpr = Math.min(window.devicePixelRatio || 1, 2);
                 W = window.innerWidth; H = window.innerHeight;
                 cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-                var n = Math.max(30, Math.min(95, Math.round(W * H / 15000)));
+                var phone = W < 700, n = Math.max(phone ? 26 : 45, Math.min(115, Math.round(W * H / (phone ? 9500 : 11500))));
                 while (leaves.length < n) leaves.push(make(true));
                 leaves.length = n;
                 leaves.sort(function (a, b) { return a.z - b.z; });        // far leaves are painted first
