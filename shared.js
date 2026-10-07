@@ -292,6 +292,12 @@ const DASH_KEY  = 'stockroom_dash_prefs';
 const INFO_TOOL = { id:'information', name:'Information', href:'information', icon:'book', section:'information', desc:'Ordering guides, SOPs, vendor guides, and regulatory references', keywords:'wiki guide help' };
 const ALL_TOOLS = [...TOOLS, INFO_TOOL];
 
+/* Breakroom: retro games, each its own page (the game itself runs in games/<id>.html inside the shell) */
+const BREAKROOM = [
+    { id:'snake', name:'Stockroom Snake',            label:'Snake',          href:'snake', icon:'snake',  desc:'Pick up every item on the shelf. Don\'t hit the walls.', keywords:'game arcade play retro break' },
+    { id:'stack', name:'Help Pudgie Load the Truck', label:'Load the Truck', href:'stack', icon:'blocks', desc:'Falling boxes, one truck. A block-stacking puzzle.',        keywords:'game arcade play retro tetris break pudgie' },
+];
+
 /* ── Information section: categories and articles ──────────────────────
    Add an article by adding an entry to a category's `articles` array.
      id       — url-safe slug (information.html?cat=ordering&article=decon)
@@ -392,6 +398,9 @@ const ICON_PATHS = {
     chart:     '<path d="M3 3v18h18"/><path d="M7 15v3M12 10v8M17 6v12"/>',
     gear:      '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
     leaf:      '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+    snake:     '<path d="M17 4h-6a4 4 0 0 0 0 8h2a4 4 0 0 1 0 8H6"/><circle cx="18.5" cy="4" r="1.3"/>',
+    blocks:    '<rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/>',
+    gamepad:   '<path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-4 3.6C2.6 9.4 2 14.5 2 16a3 3 0 0 0 3 3c1 0 1.5-.5 2-1l1.4-1.4a2 2 0 0 1 1.4-.6h4.4a2 2 0 0 1 1.4.6L17 18c.5.5 1 1 2 1a3 3 0 0 0 3-3c0-1.5-.6-6.600-.7-7.400A4 4 0 0 0 17.300 5z"/>',
     corner:    '<path d="M9 10 4 15l5 5"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/>',
 };
 function Icon({ name, size = 18, className = '', style }) {
@@ -734,6 +743,15 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
                 </div>
             </nav>
 
+            <div className="sidebar-breakroom nav-section nav-tiles">
+                <div className="nav-section-title">Breakroom</div>
+                {BREAKROOM.map(g => (
+                    <a key={g.id} href={g.href} className={`nav-item ${page === g.id ? 'active' : ''}`} title={collapsed ? g.name : undefined}>
+                        <Icon name={g.icon} /><span className="nav-label">{g.label}</span>
+                    </a>
+                ))}
+            </div>
+
             <button className="sidebar-collapse" onClick={onToggleCollapsed} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
                 <Icon name={collapsed ? 'chevR' : 'chevL'} size={17} />
@@ -787,6 +805,7 @@ function QuickLaunch({ open, onClose, data }) {
         // Tools & information categories
         const toolPool = [
             ...ALL_TOOLS.map(t => ({ kind:'tool', key:'t-' + t.id, icon:t.icon, title:t.name, sub:t.desc, href:t.href, newTab:!!t.newTab, hay:(t.name + ' ' + t.keywords).toLowerCase() })),
+            ...BREAKROOM.map(g => ({ kind:'tool', key:'g-' + g.id, icon:g.icon, title:g.name, sub:'Breakroom — ' + g.desc, href:g.href, newTab:false, hay:(g.name + ' breakroom ' + g.keywords + ' ' + g.desc).toLowerCase() })),
             ...INFO_CATEGORIES.map(c => ({ kind:'tool', key:'c-' + c.id, icon:c.icon, title:c.name, sub:'Information — ' + c.desc, href:'information?cat=' + c.id, hay:('information ' + c.name + ' ' + c.desc).toLowerCase() })),
             ...INFO_CATEGORIES.flatMap(c => c.articles.map(a => ({ kind:'tool', key:'a-' + a.id, icon:'book', title:a.title, sub:'Information — ' + c.name, href:`information?cat=${c.id}&article=${a.id}`, hay:(a.title + ' ' + a.summary + ' ' + c.name).toLowerCase() }))),
         ];
@@ -993,6 +1012,13 @@ function Shell({ page, title, desc, children, data }) {
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
+    }, []);
+
+    // Ctrl/Cmd+K pressed while a game frame has focus
+    useEffect(() => {
+        const onMsg = (e) => { if (e.origin === window.location.origin && e.data && e.data.type === 'toolbox-quicklaunch') setQlOpen(o => !o); };
+        window.addEventListener('message', onMsg);
+        return () => window.removeEventListener('message', onMsg);
     }, []);
 
     // Page fade-out on internal navigation

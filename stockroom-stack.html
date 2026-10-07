@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Help Pudgie Load the Truck</title>
+<script>
+/* Theme bootstrap: follows the Toolbox palette + appearance (same localStorage keys), and stays in sync via the storage event */
+(function () {
+  function apply() {
+    var p = 'autumn', t = 'light';
+    try { p = localStorage.getItem('stockroom_palette') === 'default' ? 'default' : 'autumn'; t = localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light'; } catch (e) {}
+    var d = document.documentElement; d.setAttribute('data-palette', p); d.setAttribute('data-theme', t);
+    if (/[?&]embed\b/.test(location.search)) d.classList.add('embed');
+  }
+  apply();
+  window.addEventListener('storage', function (e) { if (e.key === 'stockroom_palette' || e.key === 'stockroom_theme') { apply(); if (window.__onTheme) window.__onTheme(); } });
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root{ --font:'Press Start 2P','Courier New',monospace; --red:#FF5A4D; }
+  /* ---- Palette: Default (Pitt blue + green). The "screen" colours stay dark in light appearance, like a CRT. ---- */
+  html[data-palette="default"]{
+    --s-bg:var(--s-bg); --s-panel:#0B1736; --s-line:#1B2D5E; --s-text:#DCE6FA; --s-muted:#7F92B8; --s-overlay:var(--s-overlay);
+    --s-accent:#00AD6E; --s-accent-hover:var(--accent-hover); --s-on-accent:var(--on-accent); --s-edge:#003594;
+    --floor-a:#0A1740; --floor-b:var(--s-bg); --floor-grid:rgba(0,173,110,.07); --hl:rgba(0,173,110,.18); --flash:rgba(0,173,110,.7); --card-hover:var(--card-hover);
+  }
+  html[data-palette="default"][data-theme="dark"]{ --bg:#0a1628; --panel:#10213b; --line:#223657; --text:#e6ecf5; --muted:#93a3bd; --shadow:var(--shadow); --focus:#fff;
+    --accent:#00AD6E; --accent-hover:var(--accent-hover); --on-accent:var(--on-accent); --edge:#003594; }
+  html[data-palette="default"][data-theme="light"]{ --bg:#f4f5f7; --panel:#ffffff; --line:#c9cfdb; --text:#1a1d23; --muted:#5a6072; --shadow:rgba(0,32,91,.28); --focus:#1a1d23;
+    --accent:#007a4d; --accent-hover:#006640; --on-accent:#ffffff; --edge:#003594; }
+  /* ---- Palette: Autumn (umber, rust, gold) ---- */
+  html[data-palette="autumn"]{
+    --s-bg:#1a0e07; --s-panel:#241409; --s-line:#50361f; --s-text:#fbefdc; --s-muted:#cdb393; --s-overlay:rgba(18,9,4,.94);
+    --s-accent:#FFB81C; --s-accent-hover:#ffd24d; --s-on-accent:#1d0e06; --s-edge:#9c3a0b;
+    --floor-a:#2a160a; --floor-b:#241208; --floor-grid:rgba(255,184,28,.09); --hl:rgba(255,184,28,.22); --flash:rgba(255,184,28,.78); --card-hover:#b4501a;
+  }
+  html[data-palette="autumn"][data-theme="dark"]{ --bg:#150b06; --panel:#241409; --line:#50361f; --text:#fbefdc; --muted:#d0b697; --shadow:#0b0503; --focus:#fff;
+    --accent:#FFB81C; --accent-hover:#ffd24d; --on-accent:#1d0e06; --edge:#9c3a0b; }
+  html[data-palette="autumn"][data-theme="light"]{ --bg:#f5ede0; --panel:#fffaf1; --line:#d8c4a4; --text:#22140b; --muted:#5e4838; --shadow:rgba(59,29,12,.3); --focus:#22140b;
+    --accent:#9c3a0b; --accent-hover:#7a2a08; --on-accent:#ffffff; --edge:#FFB81C; }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  body{min-height:100vh;display:flex;justify-content:center;padding:14px 12px 24px}
+  #app{width:min(100%,488px)}
+
+  header{margin-bottom:14px;display:flex;align-items:center;gap:14px}
+  #pudgie{width:72px;height:72px;flex:none;image-rendering:pixelated;background:var(--s-bg);border:3px solid var(--line)}
+  #pudgie.hop{animation:hop .4s steps(3) 1}
+  @keyframes hop{0%{transform:translateY(0)}35%{transform:translateY(-8px)}70%{transform:translateY(-3px)}100%{transform:translateY(0)}}
+  h1{margin:0;font-size:clamp(13px,3.8vw,18px);line-height:1.35;color:var(--accent);
+     text-shadow:3px 3px 0 var(--edge);letter-spacing:0;font-weight:400}
+  header p{margin:8px 0 0;font-size:7px;color:var(--muted);line-height:1.8}
+
+  #hud{display:flex;align-items:stretch;gap:10px;margin-bottom:12px}
+  .box{background:var(--panel);border:3px solid var(--line);padding:8px 10px}
+  #dest{flex:2.2;min-width:0;min-height:76px}
+  #dest .name{font-size:9px;line-height:1.5;color:var(--text);margin-bottom:6px;overflow-wrap:anywhere}
+  #dest .addr{font-size:6px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+  #dest.flash{animation:flash .5s steps(2) 1}
+  @keyframes flash{0%{border-color:var(--accent)}100%{border-color:var(--line)}}
+  .lbl{font-size:7px;color:var(--muted);margin-bottom:6px}
+  .val{font-size:12px;color:var(--text)}
+  .stat{flex:1;min-width:0}
+  #snd{font-family:var(--font);font-size:7px;color:var(--text);background:var(--panel);
+    border:3px solid var(--line);cursor:pointer;padding:0 8px}
+  #snd:hover{border-color:var(--accent)}
+
+  #play{display:flex;gap:14px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+  #boardwrap{flex:none;max-width:100%}
+  #stage{position:relative;border:4px solid var(--edge);border-bottom:0;box-shadow:6px 0 0 var(--shadow);background:var(--s-bg)}
+  #stage.shake{animation:shake .3s steps(2) 1}
+  @keyframes shake{0%{transform:translate(0,0)}25%{transform:translate(-5px,3px)}
+    50%{transform:translate(4px,-3px)}75%{transform:translate(-3px,-1px)}100%{transform:translate(0,0)}}
+  canvas#board{display:block;width:280px;max-width:100%;height:auto;aspect-ratio:1/2;image-rendering:pixelated}
+  #stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(to bottom,rgba(0,0,0,.14) 0 1px,transparent 1px 3px)}
+  #pallet{height:18px;border:4px solid var(--edge);border-top:0;box-shadow:6px 6px 0 var(--shadow);
+    background:repeating-linear-gradient(90deg,#9A7440 0 30px,#4F3A1C 30px 34px);position:relative}
+  #pallet::before{content:"";position:absolute;left:0;right:0;top:0;height:5px;background:#B58B4E}
+
+  #overlay{position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:16px;padding:16px;text-align:center;background:var(--s-overlay)}
+  #overlay.hidden{display:none}
+  #overlay h2{margin:0;font-size:13px;font-weight:400;line-height:1.5;color:var(--text)}
+  #overlay h2.bad{color:var(--red);font-size:17px;text-shadow:3px 3px 0 #4a1410}
+  #overlay p{margin:0;font-size:8px;line-height:1.9;color:var(--muted)}
+  #overlay p b{color:var(--text);font-weight:400}
+  .btn{font-family:var(--font);font-size:10px;color:var(--on-accent);background:var(--accent);cursor:pointer;
+    border:0;padding:12px 16px;box-shadow:4px 4px 0 var(--edge)}
+  .btn:hover{background:var(--accent-hover)}
+  .btn:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--edge)}
+  button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+  #side{display:flex;flex-direction:column;gap:10px;width:136px}
+  #side .box{padding:8px}
+  #side canvas{background:var(--s-bg)}
+  #side canvas{display:block;margin:0 auto;image-rendering:pixelated}
+  .two{display:flex;gap:8px}
+  .two > div{flex:1}
+
+  #toast{height:20px;margin-top:16px;font-size:9px;color:var(--accent);text-align:center;opacity:0;transition:opacity .25s}
+  #toast.on{opacity:1}
+  #manifest{margin-top:6px;min-height:78px}
+  #manifest div.row{font-size:7px;line-height:1.9;color:var(--text);overflow-wrap:anywhere}
+  #manifest div.row span{color:var(--accent)}
+  #manifest div.row.old{color:var(--muted)}
+  #manifest .empty{font-size:7px;color:var(--muted);line-height:1.9}
+
+  #pad{display:none;margin:12px auto 0;width:min(100%,300px);grid-template-columns:repeat(3,1fr);gap:8px}
+  #pad button{font-family:var(--font);font-size:9px;color:var(--text);background:var(--panel);
+    border:3px solid var(--line);cursor:pointer;padding:16px 4px}
+  #pad button:active{background:var(--edge);border-color:var(--accent)}
+  @media (pointer:coarse){#pad{display:grid}}
+
+  .keys{margin-top:14px;font-size:7px;color:var(--muted);line-height:2.1;text-align:center}
+  @media (prefers-reduced-motion:reduce){#stage.shake,#dest.flash,#pudgie.hop{animation:none}}
+
+  /* Anything on the game screen (playfield + its overlays) keeps the dark "screen" colours in every theme */
+  #stage{ --text:var(--s-text); --muted:var(--s-muted); --panel:var(--s-panel); --line:var(--s-line);
+          --accent:var(--s-accent); --accent-hover:var(--s-accent-hover); --on-accent:var(--s-on-accent); --edge:var(--s-edge); --focus:#fff; }
+  html{ background:var(--bg); }
+  html.embed body{ min-height:0; padding-top:8px; padding-bottom:16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <canvas id="pudgie" width="24" height="24" aria-label="Pudgie"></canvas>
+    <div>
+      <h1>HELP PUDGIE LOAD THE TRUCK</h1>
+      <p>Pudgie drives the deliveries. Fill a row edge to edge and it goes on the truck.</p>
+    </div>
+  </header>
+
+  <div id="hud">
+    <div id="dest" class="box">
+      <div class="lbl">DELIVER TO</div>
+      <div class="name" id="destName">-</div>
+      <div class="addr" id="destAddr"></div>
+    </div>
+    <div class="stat box"><div class="lbl">SCORE</div><div class="val" id="score">0</div></div>
+    <div class="stat box"><div class="lbl">BEST</div><div class="val" id="best">0</div></div>
+    <button id="snd" aria-label="Toggle sound">SND<br>ON</button>
+  </div>
+
+  <div id="play">
+    <div id="boardwrap">
+      <div id="stage">
+        <canvas id="board" width="280" height="560"></canvas>
+        <div id="overlay"></div>
+      </div>
+      <div id="pallet"></div>
+    </div>
+    <aside id="side">
+      <div class="box"><div class="lbl">HOLD</div><canvas id="hold" width="84" height="52"></canvas></div>
+      <div class="box"><div class="lbl">NEXT</div><canvas id="next" width="84" height="156"></canvas></div>
+      <div class="box two">
+        <div><div class="lbl">ROWS</div><div class="val" id="lines">0</div></div>
+        <div><div class="lbl">SHIFT</div><div class="val" id="level">1</div></div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="manifest" class="box"><div class="lbl">ON THE TRUCK</div><div id="log"></div></div>
+
+  <div id="pad">
+    <button data-a="left" aria-label="Move left">&#9664;</button>
+    <button data-a="down" aria-label="Soft drop">&#9660;</button>
+    <button data-a="right" aria-label="Move right">&#9654;</button>
+    <button data-a="rotate">ROTATE</button>
+    <button data-a="drop">DROP</button>
+    <button data-a="hold">HOLD</button>
+  </div>
+
+  <div class="keys">Left and Right move, Up or X rotates, Z rotates back<br>Down speeds up, Space drops, C holds, P pauses, M mutes</div>
+</div>
+
+<script>
+/* Delivery destinations: [building name, area, street address] */
+const DESTS = [["1 Chatham Center","Swissvale","112 Washington Place"],["100 Medical Arts Building, Suite 170","Kittanning",""],["226 East Main Street","Titusville","226 East Main Street"],["3343 Forbes Avenue","Oakland","3343 Forbes Avenue"],["450 Schoolhouse Road","Johnstown",""],["Administrative Office Building","Lawrenceville/Bloomfield","4221 Penn Avenue"],["Aiken Professional Building","Shadyside","532 South Aiken Avenue"],["Air Glow Observatory","Oakland",""],["Allegheny Observatory","Allegheny Observatory","159 Riverview Ave"],["Allen Hall","Oakland","3941 O'Hara St"],["Alumni Hall","Oakland","4227 Fifth Ave"],["Ambulatory Pediatrics at UPMC Mercy Health Center","Swissvale","1515 Locust Street"],["Applied Research Center","Blawnox","135 William Pitt Way"],["Aquatic Center","Johnstown",""],["Aristotle Hall","Greensburg","1150 Mount Pleasant Road"],["Art Gallery","Oakland","3816 Forbes Avenue"],["Atwood Building, 2","Oakland","235 Atwood Street"],["Atwood Building, 3","Oakland","233 Atwood Street"],["Atwood Building, Suite 200","Oakland","116 Atwood Street"],["Bakery Square","East Liberty","6425 Penn Avenue"],["Bellefield Boiler Plant","Oakland","4400 Forbes Avenue"],["Bellefield Hall","Oakland","315 S Bellefield Ave"],["Bellefield Professional Building","Oakland","130 N Bellefield Ave"],["Bellefield Tower","Oakland","100 N Bellefield Ave"],["Benedum Hall","Oakland","3700 O'Hara St"],["Bennett Davis Laboratories","Titusville",""],["Biddle Property","Johnstown",""],["Biomedical Science Tower","Oakland","200 Lothrop Street"],["Biomedical Science Tower - 3","Oakland","3501 Fifth Avenue"],["Biomedical Science Tower - South","Oakland","200 Lothrop Street"],["Birmingham Clinic / Salvation Army Bldg.","South Side","44 South 9th St."],["Birmingham Towers","South Side","2100 Wharton St"],["Blackington Hall","Johnstown","450 Schoolhouse Rd"],["Blaisdell Hall","Bradford","300 Campus Drive"],["Bld Grounds Office","Titusville",""],["Blood Bank","Oakland","3636 Boulevard of the Allies"],["Book Center","Oakland","4000 Fifth Ave"],["Braddock Professional Building","Homewood","520 Holand Drive"],["Bradford Campus","Bradford","300 Campus Drive"],["Bradford Property","Bradford","8 Dorothy Lane"],["Briar Lodge","Johnstown",""],["Bridgeside Point Building","Swissvale","100 Technology Drive"],["Bridgeside Point II Building","Swissvale","450 Technology Drive"],["Brother's Brother Foundation","Chateau/Allegheny-West","1200 Galveston Avenue"],["Buckhorn Lodge","Johnstown",""],["Campana Lecture Hall and Chapel","Greensburg","217 North Campus Road"],["Campus Police Building","Bradford",""],["Canterbury Place","Oakland","3459 Fifth Avenue"],["Carnegie Library and Museum of Pittsburgh","Oakland","4400 Forbes Ave"],["Carriage House Children's Center","Squirrel Hill","5604 Solway Street"],["Carrillo Steam Plant","Oakland","2740 Carrillo Street"],["Cascade Manor","Johnstown",""],["Cathedral of Learning","Oakland","4200 Fifth Ave"],["CCP Bass Wolfson Cranberry","Cranberry Township","3104 Unionville Rd, Cranberry Business Park"],["Center for Bioengineering","Swissvale","300 Technology Drive"],["Center for Integrative Medicine","Shadyside","580 S. Aiken Suite 310"],["Center for Lifetime Learning","Oakland","4200 Fifth Ave"],["Center for Sports Medicine and Rehabilitation","South Side","3200 South Water Street"],["Central Avenue Complex","Oakland","5001 Centre Ave"],["Central Blood Bank","Swissvale","812 Fifth Ave"],["Ceramics Studio","Bradford","300 Campus Drive"],["Champion Commons New Med Arts Build","Lawrenceville/Bloomfield","5231 Penn Avenue"],["Charles L. Cost Sports Center","Oakland",""],["Chevron Science Center","Oakland","219 Parkman Avenue"],["Clapp Hall","Oakland",""],["Clark Building","Downtown/Strip District","717 Liberty Avenue"],["Cliffwood Colony","Wilpen/Ligonier","1300 Route 271"],["Clinical Laboratory Building","Oakland","3460 Fifth Ave"],["College Park","Johnstown",""],["Community of Reconciliation Building","Oakland","4401 Fifth Ave"],["Computer Center RIDC","Blawnox","600 Episilon Dr"],["Conemaugh Valley Memorial Hospital","Johnstown","1086 Franklin Street"],["Cornerstone Care Community Med Dent Plaza","Burgettstown","1227 Smith Township State Road"],["Corporate 1 Office Building, Suite 110","Monroeville",""],["Cottage and Land Pymatuning","?",""],["Craig Hall","Oakland","200 S Craig St"],["Craig Square","Oakland","311 S Craig St"],["Crawford Hall","Oakland",""],["Criminal Forensic Lab Building","Bradford","19 Taylor Drive"],["Deaf School","Swissvale","300 East Swissvale Ave"],["DLR Building","Oakland","3512 Fifth Avenue"],["Dougherty Hall","Oakland","3333 Fifth Avenue"],["Downtown","Swissvale",""],["Eberly Hall","Oakland",""],["Elton Road Residence","Johnstown","4510 Elton Road"],["Emily Dickinson House","Bradford",""],["Emporium Center","Emporium","316 East Allegheny Avenue"],["Energy Lab","Swissvale","1435 Bedford Avenue"],["Engineering and Science Building","Johnstown",""],["Engineering Auditorium","Oakland","3700 O'Hara St"],["Ernest Hemingway House","Bradford",""],["Eureka Building","Oakland","3400 Forbes Ave"],["External Studies","Oakland","3808 Forbes Ave"],["Eye and Ear Hospital","Oakland","230 Lothrop St"],["Eye and Ear Institute","Oakland","203 Lothrop St"],["Faculty Office Building","Greensburg",""],["Faculty Pavilion","Lawrenceville / Bloomfield","400 45th Street"],["Falk Clinic","Oakland","3601 Fifth Ave"],["Falk School","Oakland","4060 Allequippa Street"],["Family Medicine","Oakland","3518 Fifth Avenue"],["Federal Corrections Institution","Bradford",""],["Ferguson Theater","Greensburg","136 Finoli Drive"],["Fessemyer Property","Bradford",""],["Fifth&Halket","Oakland","3396 Fifth Avenue"],["Fisher Hall","Bradford",""],["Fitzgerald Field House","Oakland",""],["Forbes Allies Center","Oakland","3109 Forbes Avenue"],["Forbes Avenue Classrooms","Oakland","3347 Forbes Ave"],["Forbes Craig Offices","Oakland","4551 Forbes Ave"],["Forbes Pavilion","Oakland","3525 Forbes Ave"],["Forbes Tower","Oakland",""],["Forbes Tower - Meyran","Oakland","3600 Forbes Ave at Meyran Ave"],["Foxfire Lodge","Johnstown",""],["Frame-Westerberg Commons","Bradford",""],["Frank A. Cassell Hall","Greensburg","155 Lynch Drive"],["Franklin Complex","Oakland",""],["Franklin Interior Building","South Side","37 South 10th Street"],["Frick Fine Arts Building","Oakland",""],["Frick International Studies Academy","Oakland","107 Thackary St"],["Gardner Steel Conference Center","Oakland",""],["Gate House","Greensburg",""],["Gertrude Stein House","Bradford",""],["Greenfield Medical Center","Hazelwood","521 Greenfield Avenue"],["Greengate North Plaza","Greensburg",""],["Greensbur Court Bldg C","Greensburg",""],["Greensburg Campus","Greensburg","150 Finoli Drive"],["Greensburg Court Bld A","Greensburg",""],["Greensburg Court Bldg B","Greensburg",""],["Greensburg Plant/Maintanence Building","Greensburg",""],["Hanger Building","Bradford",""],["Hanley Library","Bradford",""],["Harbor Gardens","Chateau/Allegheny-West","1650 Metropolitan Street"],["Harriett B. Wick Chapel","Bradford","300 Campus Drive"],["Haskell Library","Titusville",""],["Hawthorne Lodge","Johnstown",""],["Hazelwood Clinic","Oakland","4918 Second Avenue"],["Heather Lodge","Johnstown",""],["Heinz 57 Center","Downtown/Strip District","339 6th Ave"],["Heinz Field","Allegheny-West","400 Art Rooney Avenu"],["Heinz Memorial Chapel","Oakland",""],["Greensburg Plant/Maintenace Garage","Greensburg",""],["Hemlock Hall","Johnstown",""],["Herman Melville House","Bradford",""],["Hickory Hall","Johnstown",""],["Hieber Building","Oakland","3500 Fifth Avenue"],["Highland Manor","Johnstown",""],["GSPH Parking Garage","Oakland",""],["Hill Building","Oakland","3434 Fifth Ave"],["Hill House Center","Swissvale","1835 Centre Avenue"],["Hillman Cancer Center","Shadyside","5115 Centre Avenue"],["Hillman Cancer Center-Lab/Research","Oakland","5117 Centre Avenue"],["Hillman Library","Oakland","3960 Forbes Avenue"],["Howard L. Fesenmyer House","Bradford","300 Campus Drive"],["Information Sciences Building","Oakland","135 N Bellefield Ave"],["Integrated Security Department","Oakland","3527 Forbes Ave"],["Iroquois Building","Oakland","3600 Forbes Ave"],["J Irving Walley Memorial Chapel","Johnstown",""],["James Baldwin House","Bradford",""],["Joe M. Ball Residence Hall","Titusville",""],["John A Robertshaw Hall","Greensburg",""],["Johnstown Campus","Johnstown",""],["Johnstown Residence","Johnstown","812 Luzerne Street"],["Keystone Building","Oakland","3520 Fifth Ave"],["Kossman Building","Downtown/Strip District","100 Forbes Ave"],["Krebs Hall","Johnstown",""],["Langley Hall","Oakland",""],["Larkspur Lodge","Johnstown",""],["Laurel Hall","Johnstown",""],["Law School Building","Oakland","3900 Forbes Ave"],["Lawrence Hall","Oakland","3942 Forbes Ave"],["Lawrenceville Medical Building","Lawrenceville/Bloomfield","4117 Penn Ave"],["Learning Research and Development Center","Oakland","3939 O'Hara St"],["Lexington Tech Park","Homewood","400 N Lexington Street"],["Lexington Tech Park, Building - 1","Homewood","400 North Lexington Street"],["Lhormer Building","Oakland","3515 Fifth Ave"],["Library Annex","Oakland","234 Atwood Street"],["Life Sciences Annex","Oakland",""],["Lillian S. Kaufmann Building","Oakland","3471 Fifth Ave"],["Living/Learning Center","Johnstown","450 School House Rd"],["Loeffler Building","Oakland","121 Meyran Ave"],["Log Cabin","Johnstown",""],["Kimmel Garage","Greensburg",""],["Log Cabin Information","Oakland","4200 Fifth Ave"],["Lot - OA","Oakland","302 S. Bouquet Street"],["Lot - OC","Oakland",""],["Lot - Syria Mosque","Oakland",""],["Lot PS","Oakland","121 University Place"],["Lothrop Hall - Health Sciences iTarget Datacenter","Oakland","190 Lothrop St"],["Lupus Center for Excellence","Squirrel Hill",""],["Lynch Hall","Greensburg",""],["Maintenance Building","Johnstown",""],["Manufacturing Assistance Center","Blawnox","210 William Pitt Way"],["Maple Hall","Johnstown",""],["Mayview Hospital","Bridgeville","1601 Mayview Rd"],["McGowan Institute for Regenerative Medicine","South Side","3025 East Carson Street"],["Mckean Co Property 2.9a","Bradford",""],["Mckenna Hall","Greensburg",""],["Mckinney Hall","Titusville",""],["Medical Arts Building","Oakland","3708 Fifth Ave"],["Mellon Institute","Oakland","4400 Fifth Ave"],["Melwood Warehouse Commercial Building","Oakland","480 Melwood St"],["Merex Building","Oakland","3514 Fifth Ave"],["Mervis Hall","Oakland",""],["Metro Life","Johnstown","500 Schoolhouse Road"],["Microbac Lab","Bradford",""],["Mon Valley Health center","Monessen",""],["Mon Valley Heath Center","Monessen",""],["Mon Valley Hospital","Monongahela",""],["Mon-Yough Healthy Aging Team","McKeesport","3029 Jacks Run Road-Parkside II Bldg"],["Motor Pool Warehouse","Oakland","530 Melwood Avenue"],["Murdoch Building","Oakland","3434 Forbes Ave"],["Music Building","Oakland","4337 Fifth Ave"],["N. Petroleum St. Properties","Titusville","321 N.Petroleum Street"],["Nature Trail","Johnstown",""],["Neuromuscular Research Lab","Oakland","3860 South Water Street"],["Neville Island Laboratories","Allegheny-West",""],["Newell-Simon Hall","Oakland","5000 Forbes Avenue"],["NMR Institute Storage Building","Oakland","3941 Forbes Avenue"],["NMRL Conference Center, Rivertech, Building - F","South Side","3840 South Water Street"],["North Clarion","Tionesta",""],["Oak Hall","Johnstown",""],["Oak Hill Commons Building","Oakland","32 Oak Hill Court"],["Oakland Professional Building","Oakland","3343 Bates Street"],["Office Building","Oakland","3516 Fifth Avenue"],["O'Hara Student Center","Oakland","4024 O'Hara Street"],["Old Engineering Hall","Oakland","3943 O'Hara St"],["Omega Building","Oakland","160 North Craig Street"],["One Hope Square","Swissvale","1901 Centre Avenue"],["Owen Library","Johnstown",""],["Oxford Building","Oakland","3501 Forbes Ave"],["Panther Central","Oakland","3995 Forbes Avenue"],["Parcel Of Land","Bradford","555 West Washington Street"],["Park Plaza","Oakland","128 N Craig St"],["Parkvale Building","Oakland","200 Meyran Ave"],["Parkvale Plaza","Oakland","3520 Forbes Ave"],["Pasquerilla Performing Arts Center","Johnstown",""],["O'Hara Garage","Oakland","3915 O'Hara Street"],["Pathology Education Research","Oakland","226 Meyran Avenue"],["Pennsylvania Hall","Oakland","3825 University Drive"],["Pharmacy Administration","?","3507 Victoria Street"],["Pine Center, Suite 110","Wexford","11279 Perry Highway"],["Pitt Copy Center","Oakland","3949 Forbes Ave"],["Pitt Shop","Oakland","3939 Forbes Ave"],["Pittsburgh Athletic Association","Oakland","4215 Fifth Ave"],["Pittsburgh Board of Education","Oakland","341 S Bellefield Ave"],["Pittsburgh Film","Oakland","205 Oakland Ave"],["Pittsburgh Milliones University Prep","Swissvale","3117 Centre Ave"],["Pittsburgh Water and Sewer Authority","Blawnox","900 Freeport Road"],["Plant Maintenance Storage Building","Greensburg","150 Finoli Drive"],["Plaza Building","South Side","451 44th STREET"],["Plum Borough Animal Facility","Blawnox","709 New Texas Rd"],["Plum Borough Colony","Blawnox","709 New Texas Road"],["Plum Borough Science","Blawnox","709 New Texas Road"],["Pole Building","Johnstown",""],["Post Office - Oakland Branch","Oakland","347 S Bouquet St"],["Powers Hall","Greensburg",""],["Primate Center","Blawnox","709 New Texas Rd"],["Private Physicians Building","Oakland","3500 Fifth Ave"],["Professional Building","Oakland","230 McKee Pl"],["Public Health - Crabtree and Parran Halls","Oakland","130 DeSoto St"],["Pump House","Greensburg",""],["Pymatuning Laboratory","?","13142 Hartstown Rd"],["Quantum One Building","South Side","2 Hot Metal Street"],["Rand Building","Oakland","4570 Fifth Avenue"],["Rangos Research Center","South Side","530 45th Street"],["Red House","Bradford","300 Campus Drive"],["Reed-Coit Hall","Bradford","300 Campus Drive"],["Rehabilitation Science Technology","South Side","2310 Jane Street"],["RIDC PPG Building","Blawnox","260 Kappa Dr"],["Rivertech Office Works","South Side","3820 South Water Street"],["Rivertech Office Works, Building - 6","South Side","3858 South Water Street"],["Rivertech, Building - E","South Side","3830 South Water Street"],["Ross Building","Oakland","4601 Baum Blvd"],["Safety and Security Center, 0000","Greensburg","1150 Mount Pleasant Road"],["Salk Annex","Oakland","3501 Terrace Street"],["Salk Pavilion","Oakland","335 Sutherland Drive"],["Salk Hall","Oakland","3501 Terrace Street"],["Sarah B. Dorn House","Bradford","300 Campus Drive"],["Scaife Hall","Oakland","3550 Terrace St"],["Schenley Quadrangle","Oakland","3959 Fifth Ave"],["School of Social Work","Mechanicsburg","403 East Winding Hill Road"],["Seneca Building","Bradford","2 Main Street"],["Sennott Square","Oakland","210 S Bouquet Street"],["Shadyside Place","Shadyside","580 South Aiken Avenue"],["Smith Hall","Greensburg",""],["Soldiers and Sailors Memorial Hall","Oakland",""],["Solvent Storage Building","Oakland",""],["Space Research Coordination Center","Oakland","4107 O'Hara St"],["Spangler Professional Building","Oakland","305-309 Oakland Avenue"],["Sport and Fitness Center","Bradford",""],["Sports Center","Johnstown",""],["Squirrel Hill Satellite","Squirrel Hill","5818 Forbes Avenue"],["St. Francis Hospital","South Side",""],["St. Margaret Memorial Hospital","Oakland","815 Freeport Road"],["Stephen Foster Memorial","Oakland",""],["Sterling Building","Oakland","201 N Craig St"],["Student Union","Johnstown",""],["Student Union And Gym","Titusville",""],["Summer House","Titusville",""],["Summit Manor","Johnstown",""],["Sunset Lodge","Johnstown",""],["Sennott Square Garage","Oakland","210 S Bouquet St"],["Swarts Hall","Bradford",""],["T.S. Eliot House","Bradford",""],["Tamburri Property","Oakland","3412 Forbes Avenue"],["Temple Emanuel","Cedarhurst",""],["Thackeray Hall","Oakland","139 University Pl"],["Thaw Hall","Oakland","3943 O'Hara St"],["The Assembly (The Ford Building)","Oakland","5051 Center Avenue"],["The John M. and Gertrude E. Petersen Events Center","Oakland","3719 Terrace Street"],["The John M. and Gertrude E. Petersen Sports Complex","Oakland","395 Robinson Street"],["The Offices at Baum","East Liberty","5607 Baum Boulevard"],["The Riviera","Swissvale","350 Technology Drive"],["Theiss Medical Building","Oakland","373 Burrows St"],["Thomas Boulevard Building","Homewood","7500 Thomas Boulevard"],["Thomas Detre Hall of the WPIC","Oakland","3811 O'Hara St"],["Timberline Manor","Johnstown",""],["Titus Spruce Residence Hall","Titusville",""],["Titus Town1","Titusville",""],["Titus Town2","Titusville",""],["Titusville Campus","Titusville",""],["Titusville Residence","Titusville",""],["Titusville Residential Proprty","Titusville","521 East Walnut Street"],["Tower A - Basement","Oakland","3925 Forbes Ave"],["Tower B","Oakland","3990 Fifth Avenue"],["Trees Hall","Oakland",""],["University Center","Oakland","120 Lytton Ave"],["University Child Development Center","Oakland","635 Clyde St"],["University Club","Oakland","123 University Pl"],["University of Pennsylvania, Dept of Psychology","Philadelphia",""],["University Place Office Building","Oakland","121 University Pl"],["University Public Safety Building","Oakland","3412 Forbes Avenue"],["University Technology Development Center","Oakland","4516 Henry St"],["U-PARC","Blawnox","3010 William Pitt Way"],["UPMC Braddock","Braddock","400 Holland Avenue"],["UPMC Cancer Pavilion","Shadyside","5150 Centre Avenue"],["UPMC Child Guidance Center","Oakland","201 DeSoto St"],["UPMC Children's Hospital","Lawrenceville/Bloomfield",""],["UPMC Children's Hospital Office Building","Oakland","3414 Fifth Avenue"],["UPMC Diversified Building","Penn Hills Township",""],["UPMC Eye Center","Oakland","3504 Fifth Avenue"],["UPMC Magee Women's Hospital","Oakland","300 Halket Street"],["UPMC Magee Womens Research Institute","Oakland","204 Craft Avenue"],["UPMC Mercy Hospital","Swissvale","1400 Locust St"],["UPMC Mercy Pavilion","Swissvale","1622 Locust Street"],["UPMC Montefiore University Hospital","Oakland","3459 Fifth Avenue"],["UPMC Presbyterian Hospital","Oakland","200 Lothrop St"],["UPMC Shadyside","Shadyside","5230 Centre Ave"],["UPMC Shadyside Medical Building","Shadyside","5200 Centre Ave"],["Van De Graaff Building","Oakland","3941 O'Hara St"],["Veteran Affairs","Aspinwall",""],["Victoria Building","Oakland","3500 Victoria St"],["UPMC McKeesport","McKeesport","1500 Fifth Avenue"],["UPMC Mercy - Locust Street","Swissvale","1350 Locust Street"],["UPMC Passavant Hospital","McKnight","9100 Babcock Blvd."],["UPMC Presbyterian - Administration Building","Oakland","3380 Blvd of the Allies"],["UPMC Presbyterian - South Tower","Oakland","3705 Fifth Ave"],["UPMC South Side","South Side","2000 Mary Street"],["UPMC Sports Performance Complex","South Side","3450 S Water St"],["Urban and Community Services","Oakland","3814 Forbes Avenue"],["US Steel Building","Swissvale","600 Grant Street"],["Veteran Affairs Medical Center","East Liberty",""],["Volatile Storage Building","Johnstown",""],["Walt Whitman House","Bradford",""],["Warren Higher Education Counsel","Warren",""],["Washington County SBDC Outreach Center","Washington","40 S. Main Street"],["Webster Hall","Oakland","101 N Dithridge St"],["WELLNESS CENTER","Johnstown",""],["Werner-Donaldson Moving Services","Chateau/Allegheny-West","1018 Western Avenue"],["Wesley W. Posvar Hall","Oakland","230 S Bouquet St"],["West Penn Hospital","Lawrenceville/Bloomfield","4800 Friendship Ave"],["West Washing","Bradford","523 West Washing Street"],["Western State Penitentiary","Chateau/Allegheny-West",""],["Westmoreland Hall","Greensburg","1150 Mount Pleasant Road"],["White House","Bradford","533 West Washington Street"],["Wilderness Manor","Johnstown",""],["William Faulkner House","Bradford",""],["William Pitt Union","Oakland","3959 Fifth Ave"],["Willow Hall","Johnstown","219 Highfield Avenue"],["William Pitt Garage","Oakland","3959 Fifth Ave"],["Wilson Building","Oakland","3420 Fifth Avenue"],["Women's Health Research Building","Oakland","3602 Fifth Avenue"],["Woodland Manor","Johnstown",""],["Zora Neale Hurston House","Bradford",""]];
+
+const COLS = 10, ROWS = 20, CELL = 28;
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false;
+const holdCtx = document.getElementById('hold').getContext('2d');
+const nextCtx = document.getElementById('next').getContext('2d');
+holdCtx.imageSmoothingEnabled = false; nextCtx.imageSmoothingEnabled = false;
+const overlay = document.getElementById('overlay');
+const stage = document.getElementById('stage');
+const toastEl = document.getElementById('toast');
+const el = id => document.getElementById(id);
+
+/* ============ PUDGIE (24x24 pixel sprite) ============ */
+function pudgieSprite(){
+  const c = document.createElement('canvas'); c.width = c.height = 24;
+  const g = c.getContext('2d');
+  const R = (col, x, y, w = 1, h = 1) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const SK = '#E9AE88', SKs = '#CC8F69', WH = '#F7F7F2', INK = '#15151A', MOUTH = '#8A3B32';
+  const HW = '#F2F2F2', HWd = '#C9CBD0';
+  const GR = '#8D939B', GRd = '#6B7078', GRl = '#A6ACB3';
+  // white buzz cut (flecked so it reads as short bristles)
+  R(HW, 8, 3, 8, 1); R(HW, 6, 4, 12, 3);
+  for (let y = 3; y <= 6; y++) for (let x = 6; x <= 17; x++) if ((x * 3 + y * 5) % 4 === 0 && !(y === 3 && (x < 8 || x > 15))) R(HWd, x, y);
+  R(HW, 6, 7, 1, 2); R(HW, 17, 7, 1, 2);
+  // face: weathered, no glasses
+  R(SK, 6, 7, 12, 9); R(SK, 7, 16, 10, 1); R(SK, 8, 17, 8, 1);
+  R(SK, 5, 9, 1, 3); R(SK, 18, 9, 1, 3);
+  R(HW, 6, 7, 1, 2); R(HW, 17, 7, 1, 2);
+  R(SKs, 8, 7, 8, 1);                                  // forehead wrinkle
+  R(HW, 7, 8, 3, 1); R(HW, 14, 8, 3, 1);               // bushy white brows
+  R(WH, 7, 9, 3, 2); R(INK, 8, 9, 1, 2); R(WH, 14, 9, 3, 2); R(INK, 15, 9, 1, 2);
+  R(SKs, 6, 10, 1, 1); R(SKs, 17, 10, 1, 1);           // crow's feet
+  R(SKs, 11, 10, 2, 4);                                // nose
+  R(SKs, 8, 13, 1, 2); R(SKs, 15, 13, 1, 2);           // cheek lines
+  // short white stubble
+  for (let y = 12; y <= 17; y++) for (let x = 7; x <= 16; x++){
+    if (y === 12 && (x < 7 || x > 8) && (x < 15)) continue;
+    if (y >= 16 && (x < 8 || x > 15)) continue;
+    if (((x * 7 + y * 13) % 3) === 0) R('#F4F4F4', x, y);
+  }
+  R(MOUTH, 10, 15, 4, 1);
+  R(SKs, 10, 18, 4, 1);
+  // grey t-shirt
+  R(GR, 6, 19, 4, 1); R(GR, 14, 19, 4, 1); R(GR, 4, 20, 16, 3);
+  R(GRd, 4, 20, 2, 3); R(GRd, 18, 20, 2, 3);
+  R(GRd, 9, 19, 6, 1); R(GRl, 10, 20, 4, 1);
+  // dark outline for contrast
+  const a = g.getImageData(0, 0, 24, 24).data, pts = [];
+  const op = (x, y) => x >= 0 && y >= 0 && x < 24 && y < 24 && a[(y * 24 + x) * 4 + 3] > 0;
+  for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++)
+    if (!op(x, y) && (op(x-1, y) || op(x+1, y) || op(x, y-1) || op(x, y+1))) pts.push([x, y]);
+  g.fillStyle = '#050B1E'; pts.forEach(([x, y]) => g.fillRect(x, y, 1, 1));
+  return c;
+}
+const pudgieEl = document.getElementById('pudgie');
+pudgieEl.getContext('2d').drawImage(pudgieSprite(), 0, 0);
+
+/* ============ PIECES: seven kinds of cardboard box ============ */
+// shapes use the standard Tetris Guideline spawn orientations (SRS)
+const PIECES = [
+  { m:[[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]], box:{ base:'#C9985A', hi:'#DDB070', lo:'#A87A40', edge:'#5E4220', tape:'#2A7BEB', accent:'#2A7BEB' } }, // I kraft + blue tape
+  { m:[[1,1],[1,1]],                              box:{ base:'#F0EFE8', hi:'#FFFFFF', lo:'#CFCEC4', edge:'#6C6A60', tape:'#C9985A', accent:'#D9382F' } }, // O white
+  { m:[[0,1,0],[1,1,1],[0,0,0]],                  box:{ base:'#9A6A3A', hi:'#B88450', lo:'#7A5028', edge:'#3F250C', tape:'#E9D3A0', accent:'#00AD6E' } }, // T dark brown
+  { m:[[0,1,1],[1,1,0],[0,0,0]],                  box:{ base:'#E0C48C', hi:'#EED8A8', lo:'#C2A468', edge:'#6E5424', tape:'#8A5A2E', accent:'#F26B21' } }, // S manila
+  { m:[[1,1,0],[0,1,1],[0,0,0]],                  box:{ base:'#D4D6D2', hi:'#EAECE8', lo:'#B2B5B0', edge:'#505450', tape:'#2A7BEB', accent:'#8A5CC8' } }, // Z grey-white
+  { m:[[1,0,0],[1,1,1],[0,0,0]],                  box:{ base:'#B07844', hi:'#C99058', lo:'#8C5C2E', edge:'#4A2D10', tape:'#F2F2EC', accent:'#E8B93A' } }, // J medium brown
+  { m:[[0,0,1],[1,1,1],[0,0,0]],                  box:{ base:'#EBDFC2', hi:'#F7EFD8', lo:'#CDBE9C', edge:'#6E6040', tape:'#D9382F', accent:'#2A7BEB' } }  // L cream
+];
+
+const tileCache = {};
+// a plain cardboard box seen from above: outline, bevel, one strip of tape
+function getTile(i, s){
+  const key = i + ':' + s;
+  if (tileCache[key]) return tileCache[key];
+  const b = PIECES[i].box;
+  const c = document.createElement('canvas'); c.width = c.height = s;
+  const g = c.getContext('2d');
+  const f = s / 28, S = v => Math.max(1, Math.round(v * f));
+  const R = (col, x, y, w, h) => { g.fillStyle = col; g.fillRect(x, y, w, h); };
+  const e = S(1), inner = s - 2 * e;
+  R(b.edge, 0, 0, s, s);
+  R(b.base, e, e, inner, inner);
+  R(b.hi, e, e, inner, e); R(b.hi, e, e, e, inner);
+  R(b.lo, e, s - 2 * e, inner, e); R(b.lo, s - 2 * e, e, e, inner);
+  const tw = S(8), tx = Math.round((s - tw) / 2);
+  R(b.tape, tx, e, tw, inner);
+  R('rgba(0,0,0,0.16)', tx, e, 1, inner); R('rgba(0,0,0,0.16)', tx + tw - 1, e, 1, inner);
+  R('rgba(255,255,255,0.3)', tx + 1, e, 1, inner);
+  return tileCache[key] = c;
+}
+
+const floor = document.createElement('canvas'); floor.width = COLS * CELL; floor.height = ROWS * CELL;
+const TH = {};
+function readTheme(){
+  const cs = getComputedStyle(document.documentElement), v = (n, d) => cs.getPropertyValue(n).trim() || d;
+  TH.floorA = v('--floor-a', '#0A1740'); TH.floorB = v('--floor-b', '#091336'); TH.grid = v('--floor-grid', 'rgba(0,173,110,0.07)');
+  TH.hl = v('--hl', 'rgba(0,173,110,0.18)'); TH.flash = v('--flash', TH.flash);
+}
+function paintFloor(){
+  const f = floor.getContext('2d');
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++){
+    f.fillStyle = ((x + y) & 1) ? TH.floorA : TH.floorB;
+    f.fillRect(x * CELL, y * CELL, CELL, CELL);
+    f.fillStyle = TH.grid;
+    f.fillRect(x * CELL, y * CELL, CELL, 1); f.fillRect(x * CELL, y * CELL, 1, CELL);
+  }
+}
+readTheme(); paintFloor();
+window.__onTheme = () => { readTheme(); paintFloor(); };
+
+/* ============ SOUND ============ */
+let audio = null, soundOn = true;
+function tone(freq, dur, delay = 0, type = 'square', vol = 0.05){
+  if (!soundOn) return;
+  try{
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = audio.currentTime + delay;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t0);
+    g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+  }catch(e){}
+}
+const sfx = {
+  move(){ tone(300, .03, 0, 'square', .02); },
+  rotate(){ tone(520, .04, 0, 'square', .03); },
+  lock(){ tone(120, .08, 0, 'triangle', .08); },
+  hold(){ tone(400, .05); tone(600, .05, .05); },
+  clear(n){ [523, 659, 784, 1047].slice(0, Math.min(4, n + 1)).forEach((f, i) => tone(f, .09, i * .07)); },
+  level(){ [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, .1, i * .08)); },
+  die(){ tone(300, .15, 0, 'sawtooth'); tone(220, .15, .13, 'sawtooth'); tone(140, .4, .26, 'sawtooth'); },
+  start(){ tone(440, .08); tone(660, .08, .08); tone(880, .12, .16); }
+};
+const sndBtn = el('snd');
+sndBtn.addEventListener('click', toggleSound);
+function toggleSound(){ soundOn = !soundOn; sndBtn.innerHTML = soundOn ? 'SND<br>ON' : 'SND<br>OFF'; }
+
+/* ============ RULES (Tetris Guideline) ============
+   - 7-bag randomizer, hold, ghost piece, 3-piece preview
+   - Super Rotation System with wall kicks
+   - Gravity: (0.8 - (level-1) * 0.007)^(level-1) seconds per row
+   - 10 rows per level, soft drop 20x gravity
+   - Lock delay 0.5 s, resets on move/rotate, up to 15 times
+   - Scoring: 100/300/500/800 x level, back-to-back x1.5, combos, perfect clear
+   - Auto-repeat: 150 ms delay, then 40 ms per step                       */
+const LOCK_MS = 500, MAX_RESETS = 15, CLEAR_MS = 260, DAS = 150, ARR = 40;
+let mode = 'select';              // select | play | pause | clearing | over
+let best = 0;
+let board = [], cur = null, hold = null, canHold = true;
+let bag = [], queue = [];
+let score = 0, lines = 0, level = 1, combo = -1, b2b = false;
+let dropT = 0, lockT = 0, resets = 0, lowest = 0, soft = false;
+let clearRows = [], clearT = 0, lastTs = 0;
+let held = { left:false, right:false }, dir = 0, dasT = 0, arrT = 0;
+let logLines = [];
+
+const newBoard = () => Array.from({length: ROWS}, () => Array(COLS).fill(null));
+// guideline speed curve, in milliseconds per row
+const gravity = () => Math.max(0.5, 1000 * Math.pow(0.8 - (level - 1) * 0.007, level - 1));
+
+function newItem(t){ return { t, d: Math.floor(Math.random() * DESTS.length) }; }
+function refill(){
+  const b = [0,1,2,3,4,5,6];
+  for (let i = b.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; }
+  bag.push(...b);
+}
+function fillQueue(){ while (queue.length < 5){ if (!bag.length) refill(); queue.push(newItem(bag.pop())); } }
+function take(){ fillQueue(); const it = queue.shift(); fillQueue(); return it; }
+
+function collide(m, x, y){
+  for (let cy = 0; cy < m.length; cy++) for (let cx = 0; cx < m.length; cx++){
+    if (!m[cy][cx]) continue;
+    const bx = x + cx, by = y + cy;
+    if (bx < 0 || bx >= COLS || by >= ROWS) return true;
+    if (by >= 0 && board[by][bx]) return true;
+  }
+  return false;
+}
+const grounded = () => collide(cur.m, cur.x, cur.y + 1);
+
+function showDest(d){
+  const [name, area, addr] = DESTS[d];
+  el('destName').textContent = name;
+  el('destAddr').textContent = [addr, area ? area + ', PA' : ''].filter(Boolean).join(' - ');
+  const box = el('dest'); box.classList.remove('flash'); void box.offsetWidth; box.classList.add('flash');
+}
+
+function spawn(item){
+  const m = PIECES[item.t].m.map(r => r.slice());
+  cur = { t: item.t, d: item.d, m, r: 0, x: Math.floor((COLS - m.length) / 2), y: item.t === 0 ? -1 : 0 };
+  dropT = 0; lockT = 0; resets = 0; lowest = cur.y;
+  showDest(cur.d);
+  if (collide(cur.m, cur.x, cur.y)) gameOver();
+}
+function spawnNext(){ spawn(take()); canHold = true; }
+
+/* --- Super Rotation System --- */
+function rotMatrix(m, dirn){
+  const n = m.length, r = m.map(row => row.map(() => 0));
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++)
+    r[y][x] = dirn > 0 ? m[n - 1 - x][y] : m[x][n - 1 - y];
+  return r;
+}
+// kick offsets are [dx, dy] with +y up in the guideline tables; we flip y for screen space
+const KICK_JLSTZ = {
+  '01':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]], '10':[[0,0],[1,0],[1,-1],[0,2],[1,2]],
+  '12':[[0,0],[1,0],[1,-1],[0,2],[1,2]],     '21':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],
+  '23':[[0,0],[1,0],[1,1],[0,-2],[1,-2]],    '32':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],
+  '30':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],  '03':[[0,0],[1,0],[1,1],[0,-2],[1,-2]]
+};
+const KICK_I = {
+  '01':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],   '10':[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],
+  '12':[[0,0],[-1,0],[2,0],[-1,2],[2,-1]],   '21':[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],
+  '23':[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],   '32':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],
+  '30':[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],   '03':[[0,0],[-1,0],[2,0],[-1,2],[2,-1]]
+};
+function rotate(dirn){
+  if (cur.t === 1) return;
+  const nm = rotMatrix(cur.m, dirn), nr = (cur.r + (dirn > 0 ? 1 : 3)) % 4;
+  const table = cur.t === 0 ? KICK_I : KICK_JLSTZ;
+  for (const [dx, dy] of table['' + cur.r + nr]){
+    if (!collide(nm, cur.x + dx, cur.y - dy)){
+      cur.m = nm; cur.r = nr; cur.x += dx; cur.y -= dy; touched(); sfx.rotate(); return;
+    }
+  }
+}
+function move(dx){
+  if (!collide(cur.m, cur.x + dx, cur.y)){ cur.x += dx; touched(); sfx.move(); return true; }
+  return false;
+}
+// "move reset" lock delay: moving or rotating a grounded piece restarts the timer (max 15 times)
+function touched(){ if (grounded() && resets < MAX_RESETS){ lockT = 0; resets++; } }
+
+function ghostY(){ let y = cur.y; while (!collide(cur.m, cur.x, y + 1)) y++; return y; }
+
+function hardDrop(){
+  let n = 0;
+  while (!collide(cur.m, cur.x, cur.y + 1)){ cur.y++; n++; }
+  score += 2 * n; updateHud();
+  stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake');
+  lockPiece();
+}
+function holdPiece(){
+  if (!canHold) return;
+  const item = { t: cur.t, d: cur.d };
+  if (!hold){ hold = item; spawn(take()); } else { const h = hold; hold = item; spawn(h); }
+  canHold = false; sfx.hold();
+}
+
+function lockPiece(){
+  for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
+    if (!cur.m[cy][cx]) continue;
+    const bx = cur.x + cx, by = cur.y + cy;
+    if (by < 0) return gameOver();
+    board[by][bx] = { t: cur.t, d: cur.d };
+  }
+  sfx.lock();
+  const full = [];
+  for (let y = 0; y < ROWS; y++) if (board[y].every(c => c)) full.push(y);
+  cur = null;
+  if (full.length){
+    mode = 'clearing'; clearRows = full; clearT = CLEAR_MS; sfx.clear(full.length);
+  } else {
+    combo = -1;
+    spawnNext();
+  }
+}
+
+function pushLog(msg){
+  logLines.unshift(msg); logLines = logLines.slice(0, 4); renderLog();
+}
+function renderLog(){
+  el('log').innerHTML = logLines.length
+    ? logLines.map((m, i) => `<div class="row ${i ? 'old' : ''}"><span>LOADED</span> ${m}</div>`).join('')
+    : '<div class="empty">Nothing loaded yet. Fill a row to put it on the truck.</div>';
+}
+
+function finishClear(){
+  const n = clearRows.length;
+  // which destinations just shipped
+  const dests = [];
+  clearRows.forEach(y => board[y].forEach(c => { if (c && !dests.includes(c.d)) dests.push(c.d); }));
+  board = board.filter((_, i) => !clearRows.includes(i));
+  while (board.length < ROWS) board.unshift(Array(COLS).fill(null));
+
+  let pts = [0, 100, 300, 500, 800][n] * level;
+  let tag = ['', 'Row loaded', 'Two rows loaded', 'Three rows loaded', 'Four rows! Full load!'][n];
+  if (n === 4){ if (b2b){ pts = Math.floor(pts * 1.5); tag = 'Back-to-back full load!'; } b2b = true; } else b2b = false;
+  combo++;
+  if (combo > 0) pts += 50 * combo * level;
+  if (board.every(r => r.every(c => !c))){ pts += [0, 800, 1200, 1800, 2000][n] * level; tag = 'Truck bay clear! Perfect load'; }
+  score += pts;
+
+  const before = level;
+  lines += n; level = 1 + Math.floor(lines / 10);
+  if (level > before){ tag = 'Shift ' + level + ' begins. Boxes come faster.'; sfx.level(); }
+  else if (combo > 1) tag += '  x' + combo + ' combo';
+  showToast(tag);
+
+  dests.slice(0, 3).forEach(d => pushLog(DESTS[d][0] + (DESTS[d][1] ? ', ' + DESTS[d][1] : '')));
+  if (dests.length > 3) pushLog('+' + (dests.length - 3) + ' more destinations');
+  if (score > best) best = score;
+  updateHud();
+  clearRows = []; mode = 'play';
+  pudgieEl.classList.remove('hop'); void pudgieEl.offsetWidth; pudgieEl.classList.add('hop');
+  spawnNext();
+}
+
+function gameOver(){
+  if (mode === 'over') return;
+  mode = 'over'; cur = null; sfx.die(); dir = 0;
+  stage.classList.remove('shake'); void stage.offsetWidth; stage.classList.add('shake');
+  if (score > best) best = score;
+  updateHud();
+  const msgs = ['Pudgie can\'t fit another box.', 'The loading bay is jammed.', 'Pudgie is going to be late.',
+    'Time to rearrange the load.', 'The truck is already packed to the roof.'];
+  setTimeout(() => {
+    overlay.innerHTML = `
+      <h2 class="bad">OVERLOADED</h2>
+      <p>${msgs[Math.floor(Math.random() * msgs.length)]}</p>
+      <p>Rows loaded: <b>${lines}</b><br>Reached shift: <b>${level}</b><br>Score: <b>${score}</b><br>Best: <b>${best}</b></p>
+      <button class="btn" id="again">TRY AGAIN</button>`;
+    overlay.classList.remove('hidden');
+    el('again').onclick = startGame; el('again').focus();
+  }, 650);
+}
+
+let toastTimer;
+function showToast(msg){
+  toastEl.textContent = msg; toastEl.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => toastEl.classList.remove('on'), 1500);
+}
+function updateHud(){
+  el('score').textContent = score; el('best').textContent = best;
+  el('lines').textContent = lines; el('level').textContent = level;
+}
+
+function startGame(){
+  board = newBoard(); bag = []; queue = []; hold = null; canHold = true;
+  score = 0; lines = 0; level = 1; combo = -1; b2b = false; soft = false; clearRows = [];
+  held = { left:false, right:false }; dir = 0; logLines = []; renderLog();
+  updateHud();
+  mode = 'play';
+  overlay.classList.add('hidden');
+  spawnNext();
+  sfx.start();
+}
+
+/* ============ UPDATE ============ */
+function update(dt){
+  if (mode === 'clearing'){ clearT -= dt; if (clearT <= 0) finishClear(); return; }
+  if (mode !== 'play' || !cur) return;
+
+  // sideways auto-repeat
+  if (dir){
+    dasT += dt;
+    if (dasT >= DAS){
+      arrT += dt;
+      while (arrT >= ARR){ arrT -= ARR; if (!move(dir)) { arrT = 0; break; } }
+    }
+  }
+
+  const g = gravity(), iv = soft ? Math.max(0.5, Math.min(g, g / 20)) : g;
+  if (grounded()){
+    lockT += dt;
+    if (lockT >= LOCK_MS) lockPiece();
+  } else {
+    dropT += dt;
+    let guard = 40;
+    while (dropT >= iv && !grounded() && guard--){
+      cur.y++; dropT -= iv; if (soft) score += 1;
+      if (cur.y > lowest){ lowest = cur.y; resets = 0; lockT = 0; }   // new lowest row refreshes the reset counter
+    }
+    if (grounded()) dropT = 0;
+    if (soft) updateHud();
+  }
+}
+
+/* ============ DRAW ============ */
+function drawMini(g, t, cx, cy, s, alpha = 1){
+  const m = PIECES[t].m; let x0 = 9, x1 = -1, y0 = 9, y1 = -1;
+  for (let y = 0; y < m.length; y++) for (let x = 0; x < m.length; x++) if (m[y][x]){
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+  }
+  const ox = Math.round(cx - (x1 - x0 + 1) * s / 2), oy = Math.round(cy - (y1 - y0 + 1) * s / 2);
+  g.globalAlpha = alpha;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (m[y][x])
+    g.drawImage(getTile(t, s), ox + (x - x0) * s, oy + (y - y0) * s);
+  g.globalAlpha = 1;
+}
+function draw(){
+  ctx.drawImage(floor, 0, 0);
+  for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++){
+    const c = board[y] && board[y][x];
+    if (c) ctx.drawImage(getTile(c.t, CELL), x * CELL, y * CELL);
+  }
+  if (mode === 'clearing'){
+    ctx.fillStyle = (Math.floor((CLEAR_MS - clearT) / 65) % 2) ? 'rgba(255,255,255,.85)' : TH.flash;
+    clearRows.forEach(y => ctx.fillRect(0, y * CELL, COLS * CELL, CELL));
+  }
+  if (cur){
+    const col = PIECES[cur.t].box.base, gy = ghostY();
+    for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
+      if (!cur.m[cy][cx] || gy + cy < 0) continue;
+      const gx = (cur.x + cx) * CELL, gyy = (gy + cy) * CELL;
+      ctx.fillStyle = col; ctx.globalAlpha = 0.12; ctx.fillRect(gx, gyy, CELL, CELL);
+      ctx.globalAlpha = 0.55; ctx.strokeStyle = col; ctx.lineWidth = 2;
+      ctx.strokeRect(gx + 1, gyy + 1, CELL - 2, CELL - 2); ctx.globalAlpha = 1;
+    }
+    for (let cy = 0; cy < cur.m.length; cy++) for (let cx = 0; cx < cur.m.length; cx++){
+      if (!cur.m[cy][cx] || cur.y + cy < 0) continue;
+      ctx.drawImage(getTile(cur.t, CELL), (cur.x + cx) * CELL, (cur.y + cy) * CELL);
+    }
+  }
+  holdCtx.clearRect(0, 0, 84, 52); nextCtx.clearRect(0, 0, 84, 156);
+  if (hold) drawMini(holdCtx, hold.t, 42, 26, 16, canHold ? 1 : 0.4);
+  if (mode !== 'select') for (let i = 0; i < 3; i++) if (queue[i]) drawMini(nextCtx, queue[i].t, 42, 26 + i * 52, 16);
+}
+
+/* ============ LOOP ============ */
+function frame(ts){
+  requestAnimationFrame(frame);
+  const dt = Math.min(100, ts - lastTs); lastTs = ts;
+  update(dt);
+  draw();
+}
+requestAnimationFrame(frame);
+
+/* ============ SCREENS ============ */
+function showStart(){
+  mode = 'select'; cur = null; hold = null; queue = []; board = newBoard();
+  overlay.innerHTML = `
+    <h2>HELP PUDGIE<br>LOAD THE TRUCK</h2>
+    <p>Every box has a stop on the route.<br>Fill a row to get it on the truck.</p>
+    <button class="btn" id="go">START LOADING</button>
+    <p>Boxes come faster every 10 rows.</p>`;
+  overlay.classList.remove('hidden');
+  el('go').onclick = startGame; el('go').focus();
+  renderLog();
+}
+function togglePause(){
+  if (mode === 'play'){
+    mode = 'pause';
+    overlay.innerHTML = `<h2>ON BREAK</h2><p>Press P or tap to resume.</p><button class="btn" id="resume">RESUME</button>`;
+    overlay.classList.remove('hidden');
+    el('resume').onclick = togglePause;
+  } else if (mode === 'pause'){
+    mode = 'play'; overlay.classList.add('hidden');
+  }
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'play') togglePause(); });
+
+/* ============ INPUT ============ */
+function press(side){
+  held[side] = true; dir = side === 'left' ? -1 : 1; dasT = 0; arrT = 0;
+  if (mode === 'play' && cur) move(dir);
+}
+function release(side){
+  held[side] = false;
+  dir = held.left ? -1 : held.right ? 1 : 0; dasT = 0; arrT = 0;
+}
+function act(a){
+  if (mode !== 'play' || !cur) return;
+  if (a === 'rotate') rotate(1);
+  else if (a === 'rotateCCW') rotate(-1);
+  else if (a === 'drop') hardDrop();
+  else if (a === 'hold') holdPiece();
+}
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')){ e.preventDefault(); try{ parent.postMessage({ type: 'toolbox-quicklaunch' }, location.origin); }catch(x){} return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target && e.target.closest && e.target.closest('input,textarea,select,[contenteditable="true"]')) return;
+  const k = e.key;
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(k)) e.preventDefault();
+  if (k === 'm' || k === 'M'){ toggleSound(); return; }
+  if (mode === 'select' || mode === 'over'){ if (k === 'Enter' || k === ' ') startGame(); return; }
+  if (k === 'p' || k === 'P' || k === 'Escape'){ togglePause(); return; }
+  if (e.repeat) return;
+  if (k === 'ArrowLeft') press('left');
+  else if (k === 'ArrowRight') press('right');
+  else if (k === 'ArrowDown') soft = true;
+  else if (k === 'ArrowUp' || k === 'x' || k === 'X') act('rotate');
+  else if (k === 'z' || k === 'Z') act('rotateCCW');
+  else if (k === ' ') act('drop');
+  else if (k === 'c' || k === 'C' || k === 'Shift') act('hold');
+});
+document.addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft') release('left');
+  else if (e.key === 'ArrowRight') release('right');
+  else if (e.key === 'ArrowDown') soft = false;
+});
+
+document.querySelectorAll('#pad button').forEach(b => {
+  const a = b.dataset.a;
+  const stop = () => { if (a === 'left' || a === 'right') release(a); if (a === 'down') soft = false; };
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (a === 'left' || a === 'right') press(a);
+    else if (a === 'down') soft = true;
+    else act(a);
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(ev => b.addEventListener(ev, stop));
+});
+
+// swipe on the board: sideways to move, swipe down to drop, tap to rotate
+let sw = null;
+canvas.addEventListener('pointerdown', e => { sw = {x:e.clientX, y:e.clientY, moved:false}; });
+canvas.addEventListener('pointermove', e => {
+  if (!sw || mode !== 'play' || !cur) return;
+  const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+  if (Math.abs(dx) > 26){ move(dx > 0 ? 1 : -1); sw.x = e.clientX; sw.moved = true; }
+  else if (dy > 60 && Math.abs(dy) > Math.abs(dx)){ hardDrop(); sw = null; }
+});
+canvas.addEventListener('pointerup', () => { if (sw && !sw.moved && mode === 'play') act('rotate'); sw = null; });
+canvas.addEventListener('pointercancel', () => sw = null);
+
+showStart();
+</script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockroom Snake — DSS Stockroom Toolbox</title>
+    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <script>
+        /* Auth guard + theme, run before first paint */
+        (function () {
+            try {
+                if (localStorage.getItem('stockroom_auth') !== '1') { location.replace('landing'); }
+                document.documentElement.setAttribute('data-theme', localStorage.getItem('stockroom_theme') === 'dark' ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-palette', localStorage.getItem('stockroom_palette') === 'default' ? 'default' : 'autumn');
+            } catch (e) {}
+        })();
+    </script>
+    <link rel="stylesheet" href="https://use.typekit.net/myu6uxh.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&family=Roboto:wght@300;400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel" src="shared.js"></script>
+    <script type="text/babel">
+
+
+    /* A Breakroom game: the original game page runs in a same-origin frame (its own CSS / IDs / key handling stay isolated),
+       themed to match the Toolbox. The frame is resized to fit the game. */
+    const GameFrame = React.memo(function GameFrame({ src, title }) {
+        const ref = useRef(null);
+        const [h, setH] = useState(640);
+        useEffect(() => {
+            const f = ref.current; let ro = null;
+            const fit = () => {
+                try {
+                    const d = f.contentDocument, app = d && d.getElementById('app');
+                    if (app) setH(Math.ceil(app.getBoundingClientRect().height) + 28);
+                } catch(e) {}
+            };
+            const onLoad = () => {
+                fit();
+                try { ro = new ResizeObserver(fit); ro.observe(f.contentDocument.getElementById('app')); f.contentWindow.focus(); } catch(e) {}
+            };
+            f.addEventListener('load', onLoad);
+            if (f.contentDocument && f.contentDocument.readyState === 'complete' && f.contentDocument.getElementById('app')) onLoad();
+            return () => { f.removeEventListener('load', onLoad); if (ro) ro.disconnect(); };
+        }, []);
+        return (
+            <div className="bk-wrap">
+                <iframe ref={ref} className="bk-frame" src={src} title={title} style={{ height: h }} />
+            </div>
+        );
+    });
+
+    mountPage({ page: 'snake', title: null, desc: null, render: () => <GameFrame src="games/stockroom-snake.html?embed" title="Stockroom Snake" /> });
+
+    </script>
+</body>
+</html>
