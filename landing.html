@@ -213,39 +213,159 @@
     </script>
 
     <script>
-        /* Autumn: multicolored, multi-shaped leaves fall and tumble. Cursor (or finger) movement
-           pushes and spins nearby leaves, and a click or tap sends out a burst. */
+        /* Autumn: leaves fall and tumble. Cursor (or finger) movement pushes and spins nearby leaves,
+           and a click or tap sends out a burst. Each leaf is a pre-rendered, shaded sprite (outline, veins,
+           stem, colour gradient, mottling, darkened margin) so drawing 90 of them stays cheap. */
         (function () {
             if (window.PALETTE !== 'autumn') return;
             var cv = document.getElementById('bg'), ctx = cv.getContext('2d');
             var calm = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
             var FALL = calm ? 0.55 : 1, PUSH = calm ? 0.6 : 1;      // reduced-motion: slower fall, softer push (never frozen)
             var W, H, dpr, leaves = [];
-
-            /* ── Leaf outlines, defined once in unit space (about -1..1) ── */
-            function mirror(half) { return half.concat(half.slice().reverse().map(function (p) { return [-p[0], p[1]]; })); }
-            function poly(pts) { var p = new Path2D(); p.moveTo(pts[0][0], pts[0][1]); for (var i = 1; i < pts.length; i++) p.lineTo(pts[i][0], pts[i][1]); p.closePath(); return p; }
-            var SHAPES = [];
-            // maple (five pointed lobes)
-            SHAPES.push({ path: poly(mirror([[0,-1],[.15,-.66],[.5,-.84],[.42,-.34],[.98,-.3],[.64,.02],[.84,.42],[.34,.3],[.1,.6],[.05,.8]])), stem: 1.18, w: 3 });
-            // oak (rounded lobes)
-            (function () { var pts = [], n = 56; for (var i = 0; i < n; i++) { var a = i / n * Math.PI * 2, r = .72 + .2 * Math.sin(a * 7); pts.push([Math.sin(a) * r * .66, -Math.cos(a) * r * 1.12]); } SHAPES.push({ path: poly(pts), stem: 1.22, w: 2 }); })();
-            // aspen / birch (rounded with a tip)
-            (function () { var p = new Path2D(); p.moveTo(0,-1); p.bezierCurveTo(.98,-.5,.88,.62,0,.92); p.bezierCurveTo(-.88,.62,-.98,-.5,0,-1); SHAPES.push({ path: p, stem: 1.18, w: 2 }); })();
-            // willow (long and narrow)
-            (function () { var p = new Path2D(); p.moveTo(0,-1.1); p.bezierCurveTo(.42,-.5,.36,.5,0,.98); p.bezierCurveTo(-.36,.5,-.42,-.5,0,-1.1); SHAPES.push({ path: p, stem: 1.2, w: 1 }); })();
-            // ginkgo (fan)
-            (function () { var p = new Path2D(); p.moveTo(0,.92); p.lineTo(-.96,-.32); p.bezierCurveTo(-.78,-1,-.2,-.9,0,-.7); p.bezierCurveTo(.2,-.9,.78,-1,.96,-.32); p.closePath(); SHAPES.push({ path: p, stem: 1.15, w: 1 }); })();
-            var bag = []; SHAPES.forEach(function (s, i) { for (var k = 0; k < s.w; k++) bag.push(i); });
-
-            var COLORS = ['#c2311b', '#d8441a', '#e8641a', '#f08a1c', '#FFB81C', '#e3a21a', '#a8561a', '#b4501a', '#b3261e', '#a3281c', '#6f7d1f', '#9a8a1c'];
             var rnd = function (a, b) { return a + Math.random() * (b - a); };
+            var saw = function (t) { return t - Math.floor(t); };
+
+            /* ══ Leaf outlines (unit space: x about -1..1, tip up at y=-1, stem joins at the bottom) ══ */
+            // Generic blade: width profile w(s) from base (s=0) to tip (s=1), optional teeth and asymmetry.
+            function blade(o) {
+                var N = 120, right = [], left = [], y0 = o.base || 0.9, len = o.len || 1.9;
+                for (var i = 0; i <= N; i++) {
+                    var s = i / N, env = Math.pow(Math.sin(Math.PI * s), 0.5);
+                    var teeth = o.teeth ? env * (o.teeth.amp * saw(s * o.teeth.n) + (o.teeth.amp2 || 0) * saw(s * o.teeth.n * 3 + 0.3)) : 0;
+                    var w = o.w(s) * (1 + teeth);
+                    var y = y0 - s * len;
+                    right.push([w * (o.r || 1), y]);
+                    left.push([-w * (o.l || 1), y + (o.lShift || 0) * (1 - s)]);
+                }
+                return right.concat(left.reverse());
+            }
+            var ovate = function (peak, skew, pw) { return function (s) { return peak * Math.pow(Math.sin(Math.PI * Math.pow(s, skew)), pw); }; };
+
+            // Maple: palmate, built in polar coordinates around the vein hub; sawtooth teeth along each lobe.
+            function maple(lobes, sinus) {
+                var pts = [], cy = -0.06, N = 420;
+                for (var i = 0; i < N; i++) {
+                    var th = -180 + i * 360 / N, r = sinus;
+                    lobes.forEach(function (lb) {
+                        var d = Math.abs(((th - lb.a + 540) % 360) - 180);                 // angular distance to lobe axis
+                        if (d < lb.w) { var prof = sinus + (lb.L - sinus) * Math.pow(1 - d / lb.w, lb.p || 0.85); if (prof > r) r = prof; }
+                    });
+                    if (r > sinus + 0.06) r *= 1 + 0.085 * (saw(th / 7) - 0.5);           // teeth
+                    var rad = th * Math.PI / 180;
+                    pts.push([Math.sin(rad) * r, cy - Math.cos(rad) * r]);
+                }
+                return pts;
+            }
+            var SUGAR = [{ a: 0, L: 1.0, w: 36 }, { a: 55, L: .95, w: 33 }, { a: -55, L: .95, w: 33 }, { a: 117, L: .74, w: 30 }, { a: -117, L: .74, w: 30 }, { a: 180, L: .62, w: 48, p: 1.5 }];
+            var RED   = [{ a: 0, L: 1.0, w: 40 }, { a: 60, L: .88, w: 36 }, { a: -60, L: .88, w: 36 }, { a: 180, L: .64, w: 70, p: 1.4 }];
+            // Ginkgo: a fan with a shallow notch and wavy outer margin.
+            function ginkgo() {
+                var pts = [[0, 0.88]];
+                for (var d = -44; d <= 44; d += 1) {
+                    var ph = d * Math.PI / 180, notch = 0.20 * Math.exp(-Math.pow(d / 7, 2)), r = 1.46 + 0.035 * Math.sin(d * 0.9) - notch;
+                    pts.push([r * Math.sin(ph), 0.88 - r * Math.cos(ph)]);
+                }
+                return pts;
+            }
+            // Oak: rounded lobes separated by sinuses.
+            function oak() {
+                return blade({ w: function (s) { var env = Math.pow(Math.sin(Math.PI * Math.pow(s, 1.3)), 0.75); return env * (0.34 + 0.44 * Math.pow(Math.abs(Math.sin(s * Math.PI * 3.6 + 0.5)), 0.6)); }, len: 1.95, base: 0.92 });
+            }
+
+            /* ── Vein layouts ── */
+            function veinsBlade(vc, o) {
+                var step = o.vstep || 0.12;                                   // midrib + curved secondary veins
+                var y0 = o.base || 0.9, len = o.len || 1.9;
+                vc.moveTo(0, y0); vc.quadraticCurveTo(0.02, y0 - len * 0.5, 0, y0 - len * 0.97);
+                for (var s = 0.1; s < 0.86; s += step) for (var side = -1; side <= 1; side += 2) {
+                    var s2 = Math.min(0.98, s + 0.17), ex = o.w(s2) * 0.86 * side * (side < 0 ? (o.l || 1) : (o.r || 1));
+                    vc.moveTo(0, y0 - s * len); vc.quadraticCurveTo(ex * 0.35, y0 - (s + 0.05) * len, ex, y0 - s2 * len);
+                }
+            }
+            function veinsMaple(vc, angles) {
+                (angles || [0, 55, -55, 117, -117]).forEach(function (a) {
+                    var r = a === 0 ? 0.95 : (Math.abs(a) < 90 ? 0.88 : 0.66), rad = a * Math.PI / 180;
+                    vc.moveTo(0, 0.55); vc.lineTo(0, -0.06); vc.moveTo(0, -0.06); vc.lineTo(Math.sin(rad) * r, -0.06 - Math.cos(rad) * r);
+                    [.45, .7].forEach(function (f) {                       // little side veins on each main vein
+                        var bx = Math.sin(rad) * r * f, by = -0.06 - Math.cos(rad) * r * f;
+                        [-1, 1].forEach(function (sd) { var a2 = rad + sd * 0.55; vc.moveTo(bx, by); vc.lineTo(bx + Math.sin(a2) * r * 0.2, by - Math.cos(a2) * r * 0.2); });
+                    });
+                });
+            }
+            function veinsGinkgo(vc) { for (var d = -42; d <= 42; d += 7) { var ph = d * Math.PI / 180; vc.moveTo(0, 0.88); vc.lineTo(1.3 * Math.sin(ph), 0.88 - 1.3 * Math.cos(ph)); } }
+
+            var KINDS = [
+                { name: 'maple',  pts: maple(SUGAR, 0.5), veins: function (vc) { veinsMaple(vc); }, stem: [0, 0.56, 0.02, 1.18], k: 1.18 },
+                { name: 'maple2', pts: maple(RED, 0.5),   veins: function (vc) { veinsMaple(vc, [0, 60, -60]); }, stem: [0, 0.58, -0.03, 1.18], k: 1.1 },
+                { name: 'oak',    pts: oak(),    veins: function (vc) { veinsBlade(vc, { w: function (s) { return 0.62 * Math.sin(Math.PI * Math.pow(s, 1.3)); }, base: 0.92, len: 1.95, vstep: 0.16 }); }, stem: [0, 0.92, 0.02, 1.12], k: 0.95 },
+                { name: 'birch',  pts: blade({ w: ovate(0.74, 0.74, 0.9), teeth: { n: 15, amp: 0.07, amp2: 0.03 } }), veins: function (vc) { veinsBlade(vc, { w: ovate(0.74, 0.74, 0.9), vstep: 0.12 }); }, stem: [0, 0.9, 0.03, 1.12], k: 0.95 },
+                { name: 'elm',    pts: blade({ w: ovate(0.60, 0.85, 0.95), teeth: { n: 17, amp: 0.085, amp2: 0.035 }, l: 0.78, lShift: 0.12 }), veins: function (vc) { veinsBlade(vc, { w: ovate(0.60, 0.85, 0.95), l: 0.78, vstep: 0.12 }); }, stem: [0, 0.9, -0.02, 1.1], k: 1.0 },
+                { name: 'aspen',  pts: blade({ w: ovate(0.84, 0.95, 0.6), teeth: { n: 13, amp: 0.025 }, len: 1.8, base: 0.82 }), veins: function (vc) { veinsBlade(vc, { w: ovate(0.84, 0.95, 0.6), len: 1.8, base: 0.82, vstep: 0.13 }); }, stem: [0, 0.82, 0.04, 1.15], k: 0.9 },
+                { name: 'ginkgo', pts: ginkgo(), veins: veinsGinkgo, stem: [0, 0.88, 0.0, 1.2], k: 0.85 },
+                { name: 'willow', pts: blade({ w: ovate(0.28, 0.9, 0.8), teeth: { n: 24, amp: 0.025 }, len: 2.0, base: 0.95 }), veins: function (vc) { veinsBlade(vc, { w: ovate(0.28, 0.9, 0.8), len: 2.0, base: 0.95, vstep: 0.11 }); }, stem: [0, 0.95, 0.02, 1.1], k: 0.9, weight: 0.5 },
+            ];
+            /* Colours run base -> middle -> tip; a few keep a green base for leaves caught mid-turn. */
+            var PALETTE = [
+                ['#6a1410', '#b3261e', '#e04a2b'],   // crimson
+                ['#8a2a0c', '#d0501a', '#f58a2d'],   // red-orange
+                ['#9a5a0a', '#e08e14', '#ffc233'],   // amber
+                ['#a68214', '#d9b52a', '#f6e060'],   // yellow
+                ['#4e1f0e', '#8a4116', '#c58231'],   // russet
+                ['#3f5210', '#7c8c20', '#d2b83a'],   // olive turning gold
+                ['#44100f', '#7a1a24', '#b04438'],   // burgundy
+                ['#556a14', '#c9a321', '#e8742a'],   // green base, orange tip
+            ];
+
+            /* ══ Sprite renderer ══ */
+            var SZ = 192, SPRITES = [];
+            function paintLeaf(kind, cols) {
+                var c = document.createElement('canvas'); c.width = c.height = SZ; var g = c.getContext('2d');
+                var k = SZ * 0.42; g.translate(SZ / 2, SZ / 2 - 0.05 * k); g.scale(k, k);
+                var lw = function (px) { return px / k; };                               // line width in unit space
+                // petiole
+                g.strokeStyle = '#5b3517'; g.lineWidth = lw(3.4); g.lineCap = 'round';
+                g.beginPath(); g.moveTo(kind.stem[0], kind.stem[1] - 0.05); g.quadraticCurveTo(kind.stem[2] * 0.5, (kind.stem[1] + kind.stem[3]) / 2, kind.stem[2], kind.stem[3]); g.stroke();
+                // blade
+                var p = new Path2D(); kind.pts.forEach(function (q, i) { i ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]); }); p.closePath();
+                g.save(); g.clip(p);
+                var grad = g.createLinearGradient(0, 0.95, 0, -1.05);
+                grad.addColorStop(0, cols[0]); grad.addColorStop(0.5, cols[1]); grad.addColorStop(1, cols[2]);
+                g.fillStyle = grad; g.fillRect(-1.5, -1.5, 3, 3);
+                // mottling: soft lighter / darker patches
+                for (var i = 0; i < 14; i++) {
+                    var x = rnd(-0.8, 0.8), y = rnd(-1, 0.9), r = rnd(0.12, 0.34), lite = Math.random() < 0.5;
+                    var rg = g.createRadialGradient(x, y, 0, x, y, r);
+                    rg.addColorStop(0, lite ? 'rgba(255,214,120,0.30)' : 'rgba(60,14,6,0.26)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+                    g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2);
+                }
+                // veins (light edge + dark core)
+                var vc = new Path2D(); kind.veins(vc);
+                g.lineCap = 'round'; g.strokeStyle = 'rgba(255,225,160,0.22)'; g.lineWidth = lw(2.4); g.stroke(vc);
+                g.strokeStyle = 'rgba(55,16,5,0.34)'; g.lineWidth = lw(1.0); g.stroke(vc);
+                // darkened margin
+                g.strokeStyle = 'rgba(52,14,4,0.42)'; g.lineWidth = lw(7); g.lineJoin = 'round'; g.stroke(p);
+                // age spots
+                for (var j = 0, n = Math.floor(rnd(3, 9)); j < n; j++) { g.fillStyle = 'rgba(48,18,6,' + rnd(0.18, 0.4).toFixed(2) + ')'; g.beginPath(); g.arc(rnd(-0.6, 0.6), rnd(-0.8, 0.7), rnd(0.012, 0.03), 0, 6.3); g.fill(); }
+                g.restore();
+                g.strokeStyle = 'rgba(40,12,3,0.55)'; g.lineWidth = lw(1.1); g.lineJoin = 'round'; g.stroke(p);
+                // underside: paler and a little cooler, used while the leaf is flipped
+                var back = document.createElement('canvas'); back.width = back.height = SZ; var bg = back.getContext('2d');
+                bg.drawImage(c, 0, 0); bg.globalCompositeOperation = 'source-atop'; bg.fillStyle = 'rgba(255,236,200,0.16)'; bg.fillRect(0, 0, SZ, SZ);
+                return { front: c, back: back };
+            }
+            var weights = [];
+            KINDS.forEach(function (kd, ki) { for (var w = 0; w < (kd.weight ? 1 : 2); w++) weights.push(ki); });
+            function buildSprites() {
+                KINDS.forEach(function (kd, ki) { SPRITES[ki] = PALETTE.map(function (cols) { return paintLeaf(kd, cols); }); });
+            }
+            buildSprites();
+            cv.__sprites = SPRITES;                                          // (inspection hook; harmless)
 
             function make(spreadY) {
-                var z = rnd(.55, 1.25), size = rnd(15, 34) * z;
+                var z = rnd(.55, 1.25), size = rnd(15, 33) * z, ki = weights[Math.floor(Math.random() * weights.length)];
                 return {
-                    shape: SHAPES[bag[Math.floor(Math.random() * bag.length)]], color: COLORS[Math.floor(Math.random() * COLORS.length)],
-                    z: z, size: size, x: rnd(0, W), y: spreadY ? rnd(-40, H) : -size * 1.4,
+                    kind: ki, col: Math.floor(Math.random() * PALETTE.length), k: KINDS[ki].k,
+                    z: z, size: size, x: rnd(0, W), y: spreadY ? rnd(-40, H) : -size * 1.6,
                     vx: 0, vy: 0, baseVy: rnd(34, 78) * z, amp: rnd(14, 38), freq: rnd(.5, 1.3), ph: rnd(0, 6.28),
                     rot: rnd(-3.14, 3.14), w: 0, flip: rnd(0, 6.28), flipV: rnd(.7, 2.2), boost: 0, spin: Math.random() < .5 ? -1 : 1
                 };
@@ -260,7 +380,7 @@
                 leaves.sort(function (a, b) { return a.z - b.z; });        // far leaves are painted first
             }
             resize(); window.addEventListener('resize', resize);
-            cv.__leaves = leaves;                                           // (inspection hook; harmless)
+            cv.__leaves = leaves;
 
             /* ── Pointer ── */
             var mx = null, my = null, pmx = null, pmy = null, cvx = 0, cvy = 0, bursts = [];
@@ -275,8 +395,6 @@
             var last = 0;
             function frame(ms) {
                 var t = ms / 1000, dt = Math.min(0.05, Math.max(0.001, t - last)); last = t;
-
-                // smoothed cursor velocity (px/s)
                 if (mx !== null) {
                     if (pmx !== null) { cvx = cvx * 0.75 + ((mx - pmx) / dt) * 0.25; cvy = cvy * 0.75 + ((my - pmy) / dt) * 0.25; }
                     pmx = mx; pmy = my;
@@ -286,12 +404,10 @@
                 ctx.clearRect(0, 0, W, H);
                 for (var i = 0; i < leaves.length; i++) {
                     var L = leaves[i];
-                    // drift toward terminal fall + sway
                     var tvx = Math.sin(t * L.freq + L.ph) * L.amp * FALL, tvy = L.baseVy * FALL;
                     L.vx += (tvx - L.vx) * Math.min(1, dt * 1.7);
                     L.vy += (tvy - L.vy) * Math.min(1, dt * 1.1);
 
-                    // cursor disturbance
                     if (mx !== null) {
                         var dx = L.x - mx, dy = L.y - my, d = Math.hypot(dx, dy) || 1, R = 150 + L.size * 1.5;
                         if (d < R) {
@@ -302,12 +418,11 @@
                             L.boost = Math.max(L.boost, push);
                         }
                     }
-                    for (var b = 0; b < bursts.length; b++) {            // click / tap burst
+                    for (var b = 0; b < bursts.length; b++) {
                         var bx = L.x - bursts[b].x, by = L.y - bursts[b].y, bd = Math.hypot(bx, by) || 1;
                         if (bd < 260) { var bf = (1 - bd / 260) * PUSH; L.vx += (bx / bd) * bf * 520; L.vy += (by / bd) * bf * 520 - 80 * bf; L.w += L.spin * bf * 7; L.boost = Math.max(L.boost, bf); }
                     }
 
-                    // rotation: settle toward a gentle sway, plus any spin from impulses
                     var target = Math.sin(t * L.freq * 1.3 + L.ph) * 0.55 + L.vx * 0.003;
                     var diff = L.rot - target; diff = ((diff + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
                     L.rot = target + diff; L.rot += (target - L.rot) * Math.min(1, dt * 1.2) + L.w * dt;
@@ -316,17 +431,15 @@
                     L.flip += L.flipV * (1 + L.boost * 4) * dt;
 
                     L.x += L.vx * dt; L.y += L.vy * dt;
-                    if (L.y > H + L.size * 1.6) { var n = make(false); n.z = L.z; leaves[i] = L = n; L.x = rnd(0, W); }
-                    if (L.x < -L.size * 2) L.x = W + L.size * 2; else if (L.x > W + L.size * 2) L.x = -L.size * 2;
+                    if (L.y > H + L.size * 2) { var n = make(false); n.z = L.z; leaves[i] = L = n; L.x = rnd(0, W); }
+                    if (L.x < -L.size * 2.5) L.x = W + L.size * 2.5; else if (L.x > W + L.size * 2.5) L.x = -L.size * 2.5;
 
-                    // draw: scaleX = cos(flip) fakes a tumbling leaf; edge-on leaves fade a little
-                    var sx = Math.cos(L.flip), face = Math.abs(sx);
+                    // scaleX = cos(flip) fakes a tumbling leaf; the paler underside shows when it is turned over
+                    var sx = Math.cos(L.flip), face = Math.abs(sx), s = L.size * 2.4 * L.k;
                     ctx.save();
-                    ctx.translate(L.x, L.y); ctx.rotate(L.rot); ctx.scale(L.size * (0.18 + 0.82 * face) * (sx < 0 ? -1 : 1), L.size);
-                    ctx.globalAlpha = (0.62 + 0.38 * face) * (0.72 + 0.28 * Math.min(1, L.z));
-                    ctx.fillStyle = L.color; ctx.fill(L.shape.path);
-                    ctx.globalAlpha *= 0.55; ctx.strokeStyle = '#2a0e04'; ctx.lineWidth = 0.055;
-                    ctx.beginPath(); ctx.moveTo(0, -0.82); ctx.lineTo(0, L.shape.stem); ctx.stroke();      // midrib + stem
+                    ctx.translate(L.x, L.y); ctx.rotate(L.rot); ctx.scale(0.16 + 0.84 * face, 1);
+                    ctx.globalAlpha = (0.86 + 0.14 * face) * (0.84 + 0.16 * Math.min(1, L.z));
+                    ctx.drawImage(sx >= 0 ? SPRITES[L.kind][L.col].front : SPRITES[L.kind][L.col].back, -s / 2, -s * 0.47, s, s);
                     ctx.restore();
                 }
                 bursts.length = 0;
