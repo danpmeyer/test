@@ -194,7 +194,7 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius
 .sb-collapsed .sidebar { width: var(--sb-w-min); }
 .sidebar-logo { display: block; padding: 18px 22px 12px; flex-shrink: 0; }
 .sidebar-logo img { display: block; width: 100%; height: auto; }
-.sidebar-logo .sidebar-logo-mini { display: block; width: 44px; height: auto; margin: 4px auto 0; }
+.sidebar-logo .sidebar-logo-mini { display: block; width: 42px; height: auto; margin: 6px auto 0; overflow: visible; }
 .sb-collapsed .sidebar-logo { padding: 16px 6px 12px; }
 .sidebar-search-link { padding: 0 10px 6px; flex-shrink: 0; }
 .nav-item.nav-search { height: 38px; margin: 0; background: rgba(255,184,28,.12); border: 1px solid rgba(255,184,28,.35); color: var(--gold); font-size: 15px; }

@@ -681,6 +681,22 @@ function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme, onOpenSe
     );
 }
 
+/* Collapsed-sidebar mark: a simple gold toolbox (drawn here, so there is no image file to upload) */
+function ToolboxMark() {
+    const dark = { fill: 'var(--sidebar-bg)' };
+    return (
+        <svg className="sidebar-logo-mini" viewBox="0 0 64 56" role="img" aria-label="DSSS Toolbox">
+            <path d="M21 19v-6a5 5 0 0 1 5-5h12a5 5 0 0 1 5 5v6" fill="none" stroke="#FFB81C" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="5" y="17" width="54" height="35" rx="6" fill="#FFB81C" />
+            <rect x="5" y="17" width="54" height="14" rx="6" fill="#FFCB52" />
+            <rect x="5" y="25" width="54" height="6" fill="#FFCB52" />
+            <rect x="5" y="30" width="54" height="2.6" style={dark} />
+            <rect x="25" y="25.5" width="14" height="12" rx="2.5" style={dark} />
+            <circle cx="32" cy="31.5" r="2.4" fill="#FFB81C" />
+        </svg>
+    );
+}
+
 function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }) {
     const [linksOpen, setLinksOpen] = useState(false);
     const [links, setLinks] = useState(getUsefulLinks);
@@ -696,7 +712,7 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
         <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Primary navigation">
             <a className="sidebar-logo" href="./" title="Dashboard">
                 {collapsed
-                    ? <img className="sidebar-logo-mini" src="DSSS-Atom.svg" alt="DSSS" />
+                    ? <ToolboxMark />
                     : <img src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom" />}
             </a>
 
