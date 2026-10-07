@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stockroom Snake — DSS Stockroom Toolbox</title>
-    <link rel="icon" type="image/png" href="https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png">
+    <link rel="icon" type="image/svg+xml" href="Pitt-Shield.svg">
     <script>
         /* Auth guard + theme, run before first paint */
         (function () {
@@ -33,30 +33,39 @@
 
 
     /* A Breakroom game: the original game page runs in a same-origin frame (its own CSS / IDs / key handling stay isolated),
-       themed to match the Toolbox. The frame is resized to fit the game. */
+       themed to match the Toolbox. On desktop the frame fills the whole space below the header and the game scales itself to
+       fit it; on narrow screens the frame is as tall as the game and the page scrolls as normal. */
+    const FIT_MIN_WIDTH = 720;      // must match the threshold inside the game files
     const GameFrame = React.memo(function GameFrame({ src, title }) {
-        const ref = useRef(null);
+        const ref = useRef(null), wrapRef = useRef(null);
         const [h, setH] = useState(640);
         const [missing, setMissing] = useState(false);
         useEffect(() => {
-            const f = ref.current; let ro = null;
-            const fit = () => {
+            const f = ref.current, wrap = wrapRef.current; let ro = null, ro2 = null;
+            const place = () => {
                 try {
-                    const d = f.contentDocument, app = d && d.getElementById('app');
-                    if (app) setH(Math.ceil(app.getBoundingClientRect().height) + 28);
+                    if (f.clientWidth >= FIT_MIN_WIDTH) {                   // desktop: fill the viewport below the header
+                        const top = f.getBoundingClientRect().top;
+                        setH(Math.max(420, Math.floor(window.innerHeight - top - 52)));      // status bar + main padding + wrapper padding
+                    } else {                                                // narrow: as tall as the game
+                        const d = f.contentDocument, app = d && d.getElementById('app');
+                        if (app) setH(Math.ceil(app.getBoundingClientRect().height) + 28);
+                    }
                 } catch(e) {}
             };
             const onLoad = () => {
                 try { if (!f.contentDocument.getElementById('app')) { setMissing(true); return; } } catch(e) {}
-                fit();
-                try { ro = new ResizeObserver(fit); ro.observe(f.contentDocument.getElementById('app')); f.contentWindow.focus(); } catch(e) {}
+                place();
+                try { ro = new ResizeObserver(place); ro.observe(f.contentDocument.getElementById('app')); f.contentWindow.focus(); } catch(e) {}
             };
             f.addEventListener('load', onLoad);
+            window.addEventListener('resize', place);
+            try { ro2 = new ResizeObserver(place); ro2.observe(wrap); } catch(e) {}      // sidebar collapse changes the frame width
             if (f.contentDocument && f.contentDocument.readyState === 'complete' && f.contentDocument.getElementById('app')) onLoad();
-            return () => { f.removeEventListener('load', onLoad); if (ro) ro.disconnect(); };
+            return () => { f.removeEventListener('load', onLoad); window.removeEventListener('resize', place); if (ro) ro.disconnect(); if (ro2) ro2.disconnect(); };
         }, []);
         return (
-            <div className="bk-wrap">
+            <div className="bk-wrap" ref={wrapRef}>
                 <iframe ref={ref} className="bk-frame" src={src} title={title} style={missing ? { display:'none' } : { height: h }} />
                 {missing && <div className="bk-missing">The game file <strong>{src.split('?')[0]}</strong> was not found. Upload it to the site root next to <code>{window.location.pathname.replace(/^\//, '') || 'index'}.html</code>.</div>}
             </div>

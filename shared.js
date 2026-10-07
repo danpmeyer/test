@@ -18,7 +18,7 @@ const RECENT_KEY    = 'stockroom_recent_tools';
 const PINNED_KEY    = 'stockroom_pinned_tools';
 const SIDEBAR_KEY   = 'stockroom_sidebar_collapsed';
 const CORRECT       = 'enzyme';
-const PITT_SEAL_URL = 'https://upload.wikimedia.org/wikipedia/en/thumb/f/fb/University_of_Pittsburgh_seal.svg/960px-University_of_Pittsburgh_seal.svg.png';
+const PITT_SHIELD_URL = 'Pitt-Shield.svg';
 
     /* ── Print utility — renders into a hidden iframe so only the target
           document is printed, never the surrounding app UI ──────────── */
@@ -662,7 +662,7 @@ function TopBar({ onToggleSidebar, onQuickLaunch, theme, onToggleTheme, onOpenSe
                 <Icon name="menu" />
             </button>
             <a className="topbar-brand" href="./" aria-label="DSS Stockroom Toolbox home">
-                <img src={PITT_SEAL_URL} alt="University of Pittsburgh seal" />
+                <img src={PITT_SHIELD_URL} alt="University of Pittsburgh shield" />
                 <span>DSS Stockroom Toolbox</span>
             </a>
             <div className="topbar-spacer" />
@@ -696,7 +696,7 @@ function Sidebar({ page, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile
         <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`} aria-label="Primary navigation">
             <a className="sidebar-logo" href="./" title="Dashboard">
                 {collapsed
-                    ? <span className="sidebar-logo-mini">DSSS</span>
+                    ? <img className="sidebar-logo-mini" src="DSSS-Atom.svg" alt="DSSS" />
                     : <img src="DSSS-Logo_Gold-White.svg" alt="Dietrich School Scientific Stockroom" />}
             </a>
 
