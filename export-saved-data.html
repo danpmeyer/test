@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Export saved history — DSS Stockroom Toolbox</title>
+<link rel="icon" type="image/svg+xml" href="Pitt-Shield.svg">
+<style>
+  body { font-family: Roboto, Arial, sans-serif; background: #f4f5f7; color: #1a1d23; margin: 0; padding: 32px 16px; line-height: 1.55; }
+  main { max-width: 640px; margin: 0 auto; background: #fff; border: 1px solid #e2e4e8; border-top: 4px solid #FFB81C; border-radius: 12px; padding: 28px 30px; }
+  h1 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: 32px; margin: 0 0 6px; color: #00205B; }
+  p { margin: 10px 0; }
+  .box { background: #f4f5f7; border: 1px solid #e2e4e8; border-radius: 8px; padding: 12px 16px; margin: 16px 0; font-size: 14.5px; }
+  .box b { font-family: 'Roboto Mono', monospace; }
+  button { background: #003594; color: #fff; border: 0; border-radius: 8px; padding: 12px 22px; font-size: 15px; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .muted { color: #5a6072; font-size: 13.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Export saved history</h1>
+  <p>The Toolbox used to keep Forms history and the internal Hazmat BOL history inside each web browser. The new Toolbox keeps them in one shared database instead. This page copies what is saved in <strong>this browser</strong> into a file you can import there.</p>
+  <div class="box">
+    Forms history: <b id="n-forms">…</b> records<br>
+    Hazmat BOL history: <b id="n-bol">…</b> records
+  </div>
+  <p><button id="dl">Download my saved history</button></p>
+  <p class="muted">Use this on every computer and browser where people saved forms, then import each file in the new Toolbox (Settings → Import history from the old site). Importing the same record twice is harmless: duplicates are ignored.</p>
+  <p class="muted" id="where"></p>
+</main>
+<script>
+  function read(k) { try { var v = JSON.parse(localStorage.getItem(k) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  var forms = read('stockroom_forms_history'), legacy = read('stockroom_packing_slips'), bol = read('internalbol_history');
+  document.getElementById('n-forms').textContent = forms.length + (legacy.length ? ' (+ ' + legacy.length + ' older packing slips)' : '');
+  document.getElementById('n-bol').textContent = bol.length;
+  document.getElementById('where').textContent = 'This page is reading the saved data for ' + location.host + '.';
+  var total = forms.length + legacy.length + bol.length;
+  var btn = document.getElementById('dl'); if (!total) btn.disabled = true;
+  btn.addEventListener('click', function () {
+    var data = { exportedFrom: location.host, exportedAt: new Date().toISOString(), forms_history: forms, packing_slips: legacy, internalbol_history: bol };
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = 'dss-toolbox-saved-history-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+</script>
+</body>
+</html>
